@@ -1,7 +1,6 @@
 """
 File for creating the state representation and reward definition
 """
-
 import sys
 import optparse
 import random
@@ -10,7 +9,8 @@ import time
 import numpy as np
 from xml.dom import minidom
 from utils import *
-config = import_train_configuration(config_file='training_settings.ini')
+
+config = import_configuration()
 TL_list = {"3030": 'cluster_25579770_2633530003_2633530004_2633530005'}
 
 

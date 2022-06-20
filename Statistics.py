@@ -10,7 +10,7 @@ from utils import *
 
 
 TL_list = {"TL": 'TL'}
-config = import_train_configuration(config_file='training_settings.ini')
+config = import_configuration()
 
 def init_statistics(TL_list: dict) -> dict:
     junction_inits = dict.fromkeys(TL_list)

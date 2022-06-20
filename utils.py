@@ -9,140 +9,132 @@ import torch
 from torch.autograd import Variable
 
 
-def import_train_configuration(config_file):
-    """
-    Read the config file regarding the training and import its content
-    """
-    content = configparser.ConfigParser()
-    content.read(config_file)
-    config = {}
-    config['gui'] = content['simulation'].getboolean('gui')
-    config['total_episodes'] = content['simulation'].getint('total_episodes')
-    config['max_steps'] = content['simulation'].getint('max_steps')
-    config['n_cars_generated'] = content['simulation'].getint('n_cars_generated')
-    config['green_duration'] = content['simulation'].getint('green_duration')
-    config['yellow_duration'] = content['simulation'].getint('yellow_duration')
-    config['red_duration'] = content['simulation'].getint('red_duration')
-    config['num_layers'] = content['model'].getint('num_layers')
-    config['width_layers'] = content['model'].getint('width_layers')
-    config['batch_size'] = content['model'].getint('batch_size')
-    config['learning_rate'] = content['model'].getfloat('learning_rate')
-    config['policy_learning_rate'] = content['model'].getfloat('policy_learning_rate')
-    config['value_learning_rate'] = content['model'].getfloat('value_learning_rate')
-    config['actor_init_w'] = content['model'].getfloat('actor_init_w')
-    config['critic_init_w'] = content['model'].getfloat('critic_init_w')
-    config['weight_decay'] = content['model'].getfloat('weight_decay')
-    config['training_epochs'] = content['model'].getint('training_epochs')
-    config['target_update'] = content['model'].getint('target_update')
-    config['warmup'] = content['model'].getint('warmup')
-    config['memory_size_min'] = content['memory'].getint('memory_size_min')
-    config['memory_size_max'] = content['memory'].getint('memory_size_max')
-    config['eps_start'] = content['strategy'].getfloat('eps_start')
-    config['eps_end'] = content['strategy'].getfloat('eps_end')
-    config['eps_decay'] = content['strategy'].getfloat('eps_decay')
-    config['eps_policy'] = content['strategy'].getint('eps_policy')
-    config['num_states'] = content['agent'].getint('num_states')
-    config['num_actions'] = content['agent'].getint('num_actions')
-    config['single_state_space'] = False if 'MA' not in content['agent']['agent_type'] else content['agent'].getboolean('single_state_space')
-    config['fixed_action_space'] = False if 'MA' in content['agent']['agent_type'] else content['agent'].getboolean('fixed_action_space')
-    config['local_reward_signal'] = False if 'MA' not in content['agent']['agent_type'] else content['agent'].getboolean('local_reward_signal')
-    config['gamma'] = content['agent'].getfloat('gamma')
-    print(type(content['model'].get('hidden_dim')))
-    config['hidden_dim']=content['model'].get('hidden_dim').split(',')
-    config['actor_dim'] = content['model'].get('actor_dim').split(',')
-    config['critic_dim'] = content['model'].get('critic_dim').split(',')
-    config['tau']=content['agent'].getfloat('tau')
-    config['ou_theta']=content['agent'].getfloat('ou_theta')
-    config['ou_mu']=content['agent'].getfloat('ou_mu')
-    config['ou_sigma']=content['agent'].getfloat('ou_sigma')
-    config['gae_lambda'] = content['agent'].getfloat('gae_lambda')
-    config['policy_clip'] = content['agent'].getfloat('policy_clip')
-    config['n_epochs'] = content['agent'].getint('n_epochs')
-    config['models_path_name'] = content['dir']['models_path_name']
-    config['test_model_path_name'] = content['dir']['test_model_path_name']
-    config['sumocfg_file_name'] = content['dir']['sumocfg_file_name']
-    config['generation_process'] = content['simulation']['generation_process']
-    config['state_representation'] = content['agent']['state_representation']
-    config['action_representation'] = content['agent']['action_representation']
-    config['agent_type'] = content['agent']['agent_type']
-    config['single_agent'] = False if 'MA' in config['agent_type'] else True
-    config['model'] = content['agent']['model']
-    config['is_train'] = content['agent'].getboolean('is_train')
-    config['reward_definition'] = content['agent']['reward_definition']
-    config['training_strategy'] = content['agent']['training_strategy']
-    config['actor_parameter_sharing'] = content['agent'].getboolean('actor_parameter_sharing')
-    config['critic_parameter_sharing'] = content['agent'].getboolean('critic_parameter_sharing')
-    config['intersection_length'] = content['simulation']['intersection_length']
-    config['num_intersections'] = content['simulation']['num_intersections']
+# Import all settings from the config file for training or testing
+def import_configuration():
+    """Read the appropriate config file (for training or testing)."""
+    config_file = 'training_settings.ini'
+    config = parse_config_file(config_file, is_train_config=True)
+
+    if not config['is_train']:
+        test_config_file = os.path.join(config_file, config['test_model_path_name'])
+        config = parse_config_file(test_config_file, is_train_config=False)
+
     return config
 
 
-def import_test_configuration(config_file_path):
-    """
-    Read the config file regarding the testing and import its content
-    """
-    config_file = os.path.join(config_file_path, 'training_settings.ini')
+def parse_config_file(config_file, is_train_config):
+    settings = {
+        'simulation': {
+            'gui': 'bool',
+            'total_episodes': 'int',
+            'max_steps': 'int',
+            'n_cars_generated': 'int',
+            'generation_process': 'string',
+            'green_duration': 'int',
+            'yellow_duration': 'int',
+            'red_duration': 'int',
+            'num_intersections': 'string',
+            'intersection_length': 'string',
+        },
+
+        'model': {
+            'hidden_dim': 'int_list',
+            'critic_dim': 'int_list',
+            'actor_dim': 'int_list',
+            'batch_size': 'int',
+            'learning_rate': 'float',
+            'num_layers': 'int',
+            'policy_learning_rate': 'float',
+            'value_learning_rate': 'float',
+            'actor_init_w': 'float',
+            'critic_init_w': 'float',
+            'weight_decay': 'float',
+            'training_epochs': 'int',
+            'target_update': 'int',
+            'warmup': 'int',
+            # 'width_layers': 'int',
+        },
+
+        'memory': {
+            'memory_size_min': 'int',
+            'memory_size_max': 'int',
+        },
+
+        'strategy': {
+            'eps_start': 'float',
+            'eps_end': 'float',
+            'eps_decay': 'float',
+            'eps_policy': 'int',
+        },
+
+        'agent': {
+            'agent_type': 'string',
+            'model': 'string',
+            'is_train': 'bool',
+            'state_representation': 'string',
+            'action_representation': 'string',
+            'reward_definition': 'string',
+            'training_strategy': 'string',
+            'actor_parameter_sharing': 'bool',
+            'critic_parameter_sharing': 'bool',
+            'num_states': 'int',
+            'num_actions': 'int',
+            'single_state_space': 'bool',
+            'fixed_action_space': 'bool',
+            'local_reward_signal': 'bool',
+            'gamma': 'float',
+            'tau': 'float',
+            'ou_theta': 'float',
+            'ou_mu': 'float',
+            'ou_sigma': 'float',
+            'gae_lambda': 'float',
+            'policy_clip': 'float',
+            'n_epochs': 'int',
+        },
+
+        'dir': {
+            'models_path_name': 'string',
+            'test_model_path_name': 'string',
+            'sumocfg_file_name': 'string',
+        }
+    }
+
     content = configparser.ConfigParser()
     content.read(config_file)
     config = {}
-    config['gui'] = content['simulation'].getboolean('gui')
-    config['total_episodes'] = content['simulation'].getint('total_episodes')
-    config['max_steps'] = content['simulation'].getint('max_steps')
-    config['n_cars_generated'] = content['simulation'].getint('n_cars_generated')
-    config['green_duration'] = content['simulation'].getint('green_duration')
-    config['yellow_duration'] = content['simulation'].getint('yellow_duration')
-    config['red_duration'] = content['simulation'].getint('red_duration')
-    config['num_layers'] = content['model'].getint('num_layers')
-    config['width_layers'] = content['model'].getint('width_layers')
-    config['batch_size'] = content['model'].getint('batch_size')
-    config['learning_rate'] = content['model'].getfloat('learning_rate')
-    config['policy_learning_rate'] = content['model'].getfloat('policy_learning_rate')
-    config['value_learning_rate'] = content['model'].getfloat('value_learning_rate')
-    config['actor_init_w'] = content['model'].getfloat('actor_init_w')
-    config['critic_init_w'] = content['model'].getfloat('critic_init_w')
-    config['weight_decay'] = content['model'].getfloat('weight_decay')
-    config['training_epochs'] = content['model'].getint('training_epochs')
-    config['target_update'] = content['model'].getint('target_update')
-    config['warmup'] = content['model'].getint('warmup')
-    config['memory_size_min'] = content['memory'].getint('memory_size_min')
-    config['memory_size_max'] = content['memory'].getint('memory_size_max')
-    config['eps_start'] = content['strategy'].getfloat('eps_start')
-    config['eps_end'] = content['strategy'].getfloat('eps_end')
-    config['eps_decay'] = content['strategy'].getfloat('eps_decay')
-    config['eps_policy'] = content['strategy'].getint('eps_policy')
-    config['num_states'] = content['agent'].getint('num_states')
-    config['num_actions'] = content['agent'].getint('num_actions')
-    config['single_state_space'] = False if 'MA' not in content['agent']['agent_type'] else content['agent'].getboolean('single_state_space')
-    config['fixed_action_space'] = False if 'MA' in content['agent']['agent_type'] else content['agent'].getboolean('fixed_action_space')
-    config['local_reward_signal'] = False if 'MA' not in content['agent']['agent_type'] else content['agent'].getboolean('local_reward_signal')
-    config['gamma'] = content['agent'].getfloat('gamma')
-    print(type(content['model'].get('hidden_dim')))
-    config['hidden_dim']=content['model'].get('hidden_dim').split(',')
-    config['actor_dim'] = content['model'].get('actor_dim').split(',')
-    config['critic_dim'] = content['model'].get('critic_dim').split(',')
-    config['tau']=content['agent'].getfloat('tau')
-    config['ou_theta']=content['agent'].getfloat('ou_theta')
-    config['ou_mu']=content['agent'].getfloat('ou_mu')
-    config['ou_sigma']=content['agent'].getfloat('ou_sigma')
-    config['gae_lambda'] = content['agent'].getfloat('gae_lambda')
-    config['policy_clip'] = content['agent'].getfloat('policy_clip')
-    config['n_epochs'] = content['agent'].getint('n_epochs')
-    config['models_path_name'] = content['dir']['models_path_name']
-    config['test_model_path_name'] = config_file_path
-    config['sumocfg_file_name'] = content['dir']['sumocfg_file_name']
-    config['generation_process'] = content['simulation']['generation_process']
-    config['state_representation'] = content['agent']['state_representation']
-    config['action_representation'] = content['agent']['action_representation']
-    config['agent_type'] = content['agent']['agent_type']
-    config['single_agent'] = False if 'MA' in config['agent_type'] else True
-    config['model'] = content['agent']['model']
-    config['is_train'] = False
-    config['reward_definition'] = content['agent']['reward_definition']
-    config['training_strategy'] = content['agent']['training_strategy']
-    config['actor_parameter_sharing'] = content['agent'].getboolean('actor_parameter_sharing')
-    config['critic_parameter_sharing'] = content['agent'].getboolean('critic_parameter_sharing')
-    config['intersection_length'] = content['simulation']['intersection_length']
-    config['num_intersections'] = content['simulation']['num_intersections']
+
+    for category, category_settings in settings.items():
+        for setting, setting_type in category_settings.items():
+            match setting_type:
+                case 'bool':
+                    value = content[category].getboolean(setting)
+                case 'int':
+                    value = content[category].getint(setting)
+                case 'float':
+                    value = content[category].getfloat(setting)
+                case 'string':
+                    value = content[category].get(setting)
+                case 'int_list':
+                    value = [int(v) for v in content[category].get(setting).split(',')]
+                case _:
+                    sys.exit(f'Invalid type "{setting_type}" for setting "{setting}"')
+
+            config[setting] = value
+
+    # Handle the multi-agent and single agent cases
+    if config['agent_type'].startswith('MA'):
+        config['single_agent'] = False
+        config['fixed_action_space'] = False
+    else:
+        config['single_agent'] = True
+        config['single_state_space'] = False
+        config['local_reward_signal'] = False
+
+    # Change settings for test configuration
+    if not is_train_config:
+        config['test_model_path_name'] = config_file
+        config['is_train'] = False
+
     return config
 
 

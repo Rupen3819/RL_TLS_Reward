@@ -10,7 +10,7 @@ import datetime
 import heapq
 import pandas as pd
 from pandas import DataFrame
-from utils import import_train_configuration
+from utils import import_configuration
 from shutil import copyfile
 from collections import deque
 import torch
@@ -18,9 +18,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from environment import SUMO
 
-config = import_train_configuration(config_file='training_settings.ini')
-if not config['is_train']:
-    config = import_test_configuration(config_file_path=config['test_model_path_name'])
+config = import_configuration()
 print(config)
 
 # Set up the corresponding SUMO environment for training or testing

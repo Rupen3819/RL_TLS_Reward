@@ -8,9 +8,7 @@ from modular_road_network_structure import create_modular_road_network
 from itertools import product
 import random
 
-config = import_train_configuration(config_file='training_settings.ini')
-if not config['is_train']:
-    config = import_test_configuration(config_file_path=config['test_model_path_name'])
+config = import_configuration()
 
 
 class SUMO(Env):
