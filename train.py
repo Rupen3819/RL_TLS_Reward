@@ -36,33 +36,33 @@ print('State shape: ', env.num_states)
 print('Number of actions: ', env.action_space.n)
 
 if config['agent_type'] == 'DQN':
-    from dqn_agent import DQNAgent
+    from agents.dqn_agent import DQNAgent
     agent = DQNAgent(env.num_states, env.action_space.n, config['hidden_dim'], config['fixed_action_space'], env.TL_list, config['memory_size_max'],
                 config['batch_size'], config['gamma'], config['tau'], config['learning_rate'], config['target_update'],
                 )
 
 if config['agent_type'] == 'PPO':
-    from ppo_agent import PPOAgent
+    from agents.ppo_agent import PPOAgent
     agent = PPOAgent(env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
                 env.TL_list, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'], config['gae_lambda'],
                 config['policy_learning_rate'], config['value_learning_rate']
                 )
 
 if config['agent_type'] == 'WOLP':
-    from wolp_agent import WolpertingerAgent
+    from deprecated.wolp_agent import WolpertingerAgent
     agent = WolpertingerAgent(env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['eps_policy'], config['actor_init_w'],
                 config['critic_init_w'], config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'], config['ou_theta'], config['ou_mu'],
                 config['ou_sigma'], config['policy_learning_rate'], config['value_learning_rate'], config['weight_decay']
                 )
 
 if config['agent_type'] == 'MADQN':
-    from madqn_agent import MADQNAgent
+    from agents.madqn_agent import MADQNAgent
     agent = MADQNAgent(env.num_states, env.action_space.n, len(env.TL_list), config['hidden_dim'], config['single_state_space'], config['local_reward_signal'],
                 env.TL_list, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'], config['learning_rate'], config['target_update']
                 )
 
 if config['agent_type'] == 'MAPPO':
-    from mappo_agent import MAPPOAgent
+    from agents.mappo_agent import MAPPOAgent
     agent = MAPPOAgent(env.num_states, env.action_space.n, len(env.TL_list), config['actor_dim'], config['critic_dim'], config['training_strategy'], config['actor_parameter_sharing'],
                 config['critic_parameter_sharing'], config['single_state_space'], config['local_reward_signal'], env.TL_list, config['batch_size'], config['n_epochs'],
                 config['policy_clip'], config['gamma'], config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate']
