@@ -16,18 +16,17 @@ from collections import deque
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+from environment import SUMO
 
 config = import_train_configuration(config_file='training_settings.ini')
 if not config['is_train']:
     config = import_test_configuration(config_file_path=config['test_model_path_name'])
 print(config)
 
+# Set up the corresponding SUMO environment for training or testing
 if config['is_train']:
-    from Environment.SUMO_train import SUMO
-    env=SUMO()
+    env = SUMO()
 else:
-    from Environment.SUMO_test import SUMO
     from Statistics_vehicles import Statistic_Vehicles
     vehicle_stats = Statistic_Vehicles()
     env = SUMO(vehicle_stats)

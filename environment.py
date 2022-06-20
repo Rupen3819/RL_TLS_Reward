@@ -13,9 +13,9 @@ if not config['is_train']:
     config = import_test_configuration(config_file_path=config['test_model_path_name'])
 
 
-
 class SUMO(Env):
-    def __init__(self):
+    def __init__(self, vehicle_stats=None):
+        self.vehicle_stats = vehicle_stats
         self.model_path, self.model_id = create_modular_road_network(config['models_path_name'], int(config['num_intersections']), int(config['intersection_length']))
 
         TrafficGen = ModularTrafficGenerator(
@@ -133,10 +133,10 @@ class SUMO(Env):
             done = False
 
         info = {}
-        
+
         # Return step information
         return self.state, self.reward, done, info
-    
+
     def _simulate(self, steps_todo):
             while steps_todo > 0:
                 traci.simulationStep()
@@ -145,6 +145,10 @@ class SUMO(Env):
 
                 if config['reward_definition'] == 'waiting_fast':
                     get_current_reward(self.junction_dict)
+
+                if self.vehicle_stats is not None:
+                    self.vehicle_stats.add_stats()
+
                 get_states(self.junction_dict)
                 steps_todo -= 1
 
