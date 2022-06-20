@@ -25,7 +25,7 @@ class SUMO(Env):
         self.TL_list, self.action_dict, self.program_dict, self.num_program_dict = self.get_tl_dicts(int(config['num_intersections']))
 
         self._TrafficGen = TrafficGen
-        self._sumo_cmd=set_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
 
         if config['single_agent']:
             if config['fixed_action_space']:
@@ -42,12 +42,7 @@ class SUMO(Env):
         self.yellow_duration = config['yellow_duration']
         self.red_duration = config['red_duration']
 
-
-        if 'SUMO_HOME' in os.environ:
-            tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-            sys.path.append(tools)
-        else:
-            sys.exit("please declare environment variable 'SUMO_HOME'")
+        import_sumo_tools()
 
         self._TrafficGen.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=random.randint(0, 100))
         traci.start(self._sumo_cmd)
@@ -173,7 +168,7 @@ class SUMO(Env):
         traci.trafficlight.setPhase(tl_id, red_phase_code)
 
     def reset(self):
-        self._sumo_cmd = set_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
         # self._TrafficGen.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=random.randint(0, 9))
         try:
             traci.start(self._sumo_cmd)
