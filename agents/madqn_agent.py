@@ -1,8 +1,8 @@
 import numpy as np
 import random
-from collections import namedtuple
 
 from model import Net
+from agents.memory import MultiSequentialMemory
 
 import torch
 import torch.nn.functional as F
@@ -59,7 +59,7 @@ class MADQNAgent():
         self.optimizers = [optim.Adam(n.parameters(), lr=LR) for n in self.qnetworks_local]
 
         # Replay memory
-        self.memory = SequentialMemory(self.single_state_space, self.local_reward_signal, self.BUFFER_SIZE, self.BATCH_SIZE)
+        self.memory = MultiSequentialMemory(self.BUFFER_SIZE, self.BATCH_SIZE, self.single_state_space, self.local_reward_signal)
 
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -185,79 +185,3 @@ class MADQNAgent():
         print('... loading models ...')
         for agent_id in range(self.num_agents):
             self.qnetworks_local[agent_id].load_checkpoint(path, f'{agent_id}')
-
-
-
-class RingBuffer:
-    def __init__(self, maxlen):
-        self.maxlen = maxlen
-        self.start = 0
-        self.length = 0
-        self.data = []
-
-    def __len__(self):
-        return self.length
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= self.length:
-            raise KeyError()
-        return self.data[(self.start + idx) % self.maxlen]
-
-    def append(self, v):
-        if self.length < self.maxlen:
-            self.length += 1
-            self.data.append(v)
-        elif self.length == self.maxlen:
-            self.start = (self.start + 1) % self.maxlen
-            self.data[(self.start + self.length - 1) % self.maxlen] = v
-        else:
-            raise RuntimeError()
-
-
-class SequentialMemory:
-    """Fixed-size buffer to store experience tuples."""
-    def __init__(self, single_state_space, local_reward_signal, buffer_size, batch_size):
-        """Initialize a SequentialMemory object.
-
-        Params
-        ======
-            single_state_space (bool): whether state space for each agent is single (17) or linear (17*n)
-            local_reward_signal (bool): whether reward signal for each agent is local (r) or global (sum(r))
-            buffer_size (int): maximum size of buffer
-            batch_size (int): size of each training batch
-        """
-        self.memory = RingBuffer(buffer_size)
-        self.experience = namedtuple("Experience", field_names=["states", "actions", "reward", "next_states", "done"])
-
-        self.single_state_space = single_state_space
-        self.local_reward_signal = local_reward_signal
-        self.batch_size = batch_size
-
-    def add(self, states, actions, reward, next_states, done):
-        """Add a new experience to memory."""
-        e = self.experience(states, actions, reward, next_states, done)
-        
-        self.memory.append(e)
-
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory.data, k=self.batch_size)
-
-        if self.single_state_space:
-            states = torch.from_numpy(np.array([e.states for e in experiences if e is not None])).float().to(device)
-            next_states = torch.from_numpy(np.array([e.next_states for e in experiences if e is not None])).float().to(device)
-        else:
-            states = torch.from_numpy(np.vstack([e.states for e in experiences if e is not None])).float().to(device)
-            next_states = torch.from_numpy(np.vstack([e.next_states for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.array([e.actions for e in experiences if e is not None])).long().to(device)
-        if self.local_reward_signal:
-            rewards = torch.from_numpy(np.array([e.reward for e in experiences if e is not None])).float().to(device)
-        else:
-            rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-  
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self):
-        """Return the current size of internal memory."""
-        return len(self.memory.data)

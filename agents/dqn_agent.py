@@ -1,12 +1,12 @@
-import numpy as np
 import random
-from collections import namedtuple, deque
 
-from model import Net
-
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+
+from model import Net
+from agents.memory import SequentialMemory
 
 #BUFFER_SIZE = int(1e5)  # replay buffer size
 #BATCH_SIZE = 64         # minibatch size
@@ -17,7 +17,8 @@ import torch.optim as optim
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class DQNAgent():
+
+class DQNAgent:
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, hidden_dim, fixed_action_space, TL_list, BUFFER_SIZE, BATCH_SIZE, GAMMA, TAU, LR, UPDATE_EVERY):
@@ -177,68 +178,3 @@ class DQNAgent():
     def load_models(self, path):
         print('... loading models ...')
         self.qnetwork_local.load_checkpoint(path)
-
-
-
-class RingBuffer:
-    def __init__(self, maxlen):
-        self.maxlen = maxlen
-        self.start = 0
-        self.length = 0
-        self.data = []
-
-    def __len__(self):
-        return self.length
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= self.length:
-            raise KeyError()
-        return self.data[(self.start + idx) % self.maxlen]
-
-    def append(self, v):
-        if self.length < self.maxlen:
-            self.length += 1
-            self.data.append(v)
-        elif self.length == self.maxlen:
-            self.start = (self.start + 1) % self.maxlen
-            self.data[(self.start + self.length - 1) % self.maxlen] = v
-        else:
-            raise RuntimeError()
-
-
-class SequentialMemory:
-    """Fixed-size buffer to store experience tuples."""
-    def __init__(self, buffer_size, batch_size):
-        """Initialize a SequentialMemory object.
-
-        Params
-        ======
-            buffer_size (int): maximum size of buffer
-            batch_size (int): size of each training batch
-        """
-        self.memory = RingBuffer(buffer_size)
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-
-        self.batch_size = batch_size
-
-    def add(self, state, action, reward, next_state, done):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done)
-        
-        self.memory.append(e)
-
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory.data, k=self.batch_size)
-
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-  
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self):
-        """Return the current size of internal memory."""
-        return len(self.memory.data)
