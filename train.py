@@ -66,11 +66,11 @@ if config['agent_type'] == 'MAPPO':
                 )
 
 if config['is_train']:
-    path = set_train_path(config['models_path_name'])
+    path = create_train_path(config['models_path_name'])
     print('Training results will be saved in:', path)
     copyfile(src='training_settings.ini', dst=os.path.join(path, 'training_settings.ini'))
 else:
-    test_path, plot_path = set_test_path(config['test_model_path_name'])
+    test_path, plot_path = create_test_path(config['test_model_path_name'])
     print('Test results will be saved in:', plot_path)
 
 # Define the SADQN or MADQN RL training loop
@@ -297,4 +297,4 @@ DataFrame(data={"reward":scores}).to_csv(os.path.join(path if config['is_train']
 DataFrame(data={"reward":scores, "training_time":training_time,
                "waiting_time":env.waiting_time["TL"],"queue_length":env.queue["TL"]}
          ).to_csv(os.path.join(path if config['is_train'] else plot_path, 'training_stats.csv'), sep=',', index=False)
-add_masterdata(path if config['is_train'] else plot_path, config, scores, training_time, env.waiting_time["TL"], env.waiting_time["TL"])
+add_master_data(path if config['is_train'] else plot_path, config, scores, training_time, env.waiting_time["TL"], env.waiting_time["TL"])
