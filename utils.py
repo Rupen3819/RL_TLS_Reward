@@ -8,6 +8,7 @@ from sumolib import checkBinary
 
 MASTER_DATA_FILE = 'Masterdata.xlsx'
 
+
 # Import all settings from the config file for training or testing
 def import_configuration():
     """Read the appropriate config file (for training or testing)."""
@@ -15,7 +16,7 @@ def import_configuration():
     config = parse_config_file(config_file, is_train_config=True)
 
     if not config['is_train']:
-        test_config_file = os.path.join(config_file, config['test_model_path_name'])
+        test_config_file = os.path.join(config['test_model_path_name'], config_file)
         config = parse_config_file(test_config_file, is_train_config=False)
 
     return config
@@ -32,8 +33,8 @@ def parse_config_file(config_file, is_train_config):
             'green_duration': 'int',
             'yellow_duration': 'int',
             'red_duration': 'int',
-            'num_intersections': 'string',
-            'intersection_length': 'string',
+            'num_intersections': 'int',
+            'intersection_length': 'int',
         },
 
         'model': {
@@ -131,7 +132,6 @@ def parse_config_file(config_file, is_train_config):
 
     # Change settings for test configuration
     if not is_train_config:
-        config['test_model_path_name'] = config_file
         config['is_train'] = False
 
     return config
