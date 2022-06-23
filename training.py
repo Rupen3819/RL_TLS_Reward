@@ -6,9 +6,8 @@ from collections import deque
 import numpy as np
 
 from environment import SUMO
-from utils import import_configuration, create_train_path, create_test_path
-
-config = import_configuration()
+from settings import config
+from utils import create_train_path, create_test_path
 
 
 class EpisodicTraining:

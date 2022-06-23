@@ -1,30 +1,37 @@
-from gym import Env
-from gym.spaces import Discrete, Box
-from generator import TrafficGenerator, ModularTrafficGenerator
-from utils import *
-from State import *
-from Statistics import *
-from modular_road_network_structure import create_modular_road_network
-from itertools import product
+import os
 import random
+import sys
+from itertools import product
 
-config = import_configuration()
+import traci
+from gym import Env
+from gym.spaces import Discrete
+from sumolib import checkBinary
+
+from Statistics import init_statistics, return_mean_statistics, TL_list
+from generator import ModularTrafficGenerator
+from modular_road_network_structure import create_modular_road_network
+from settings import config
+from state import get_current_reward, return_reward, return_states, init_states, get_states, get_state_size
 
 
 class SUMO(Env):
     def __init__(self, vehicle_stats=None):
-        self.vehicle_stats = vehicle_stats
-        self.model_path, self.model_id = create_modular_road_network(config['models_path_name'], int(config['num_intersections']), int(config['intersection_length']))
+        import_sumo_tools()
 
-        TrafficGen = ModularTrafficGenerator(
+        self.vehicle_stats = vehicle_stats
+        self.model_path, self.model_id = create_modular_road_network(
+            config['models_path_name'], config['num_intersections'], config['intersection_length']
+        )
+
+        self._traffic_generator = ModularTrafficGenerator(
             config['max_steps'],
             config['n_cars_generated'],
             f'intersection/{self.model_path}/model_{self.model_id}/environment.net.xml'
         )
 
-        self.TL_list, self.action_dict, self.program_dict, self.num_program_dict = self.get_tl_dicts(int(config['num_intersections']))
+        self.TL_list, self.action_dict, self.program_dict, self.num_program_dict = self.get_tl_dicts(config['num_intersections'])
 
-        self._TrafficGen = TrafficGen
         self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
 
         if config['single_agent']:
@@ -32,8 +39,8 @@ class SUMO(Env):
                 self.action_space = Discrete(config['num_actions'])
             else:
                 self.single_action_space = Discrete(config['num_actions'])
-                self.action_space = Discrete(pow(config['num_actions'], int(config['num_intersections'])))
-                self.action_space_combinations = list(product(list(range(0, self.single_action_space.n)), repeat=int(config['num_intersections'])))
+                self.action_space = Discrete(pow(config['num_actions'], config['num_intersections']))
+                self.action_space_combinations = list(product(list(range(0, self.single_action_space.n)), repeat=config['num_intersections']))
         else:
             self.action_space = Discrete(config['num_actions'])
             self.num_agents = len(self.TL_list)
@@ -42,9 +49,7 @@ class SUMO(Env):
         self.yellow_duration = config['yellow_duration']
         self.red_duration = config['red_duration']
 
-        import_sumo_tools()
-
-        self._TrafficGen.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=random.randint(0, 100))
+        self.generate_traffic()
         traci.start(self._sumo_cmd)
 
         self.junction_dict = init_states(self.TL_list)
@@ -63,7 +68,8 @@ class SUMO(Env):
         self.reward = 0
         self.reward_old = 0
 
-
+    def generate_traffic(self, seed=random.randint(0, 100)):
+        self._traffic_generator.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=seed)
 
     def step(self, action):
         if config['fixed_action_space'] or config['single_agent'] is False:
@@ -110,6 +116,7 @@ class SUMO(Env):
 
         if config['reward_definition'] == 'waiting':
             get_current_reward(self.junction_dict)
+
         # full_reward = return_reward(self.action_dict, self.junction_dict)
         # self.reward = sum(list(full_reward.values()))
         self.reward = return_reward(self.action_dict, self.junction_dict)
@@ -131,57 +138,57 @@ class SUMO(Env):
         return self.state, self.reward, done, info
 
     def _simulate(self, steps_todo):
-            while steps_todo > 0:
-                traci.simulationStep()
-                # Removed because it slows training down
-                # add_statistics_simulate(self.junction_statistics_dict)
+        for i in range(steps_todo):
+            traci.simulationStep()
 
-                if config['reward_definition'] == 'waiting_fast':
-                    get_current_reward(self.junction_dict)
+            # Removed because it slows training down
+            # add_statistics_simulate(self.junction_statistics_dict)
 
-                if self.vehicle_stats is not None:
-                    self.vehicle_stats.add_stats()
+            if config['reward_definition'] == 'waiting_fast':
+                get_current_reward(self.junction_dict)
 
-                get_states(self.junction_dict)
-                steps_todo -= 1
+            if self.vehicle_stats is not None:
+                self.vehicle_stats.update()
 
-
-    def _set_yellow_phase(self, old_action, tl_id):
-        """
-        Activate the correct yellow light combination in sumo
-        """
-        yellow_phase_code = old_action * 3 + 1  # obtain the yellow phase code, based on the old action
-        traci.trafficlight.setPhase(tl_id, yellow_phase_code)
+            get_states(self.junction_dict)
 
     def _set_green_phase(self, action_number, tl_id):
         """
         Activate the correct green light combination in sumo
         """
-        green_phase_code = action_number * 3  # obtain the yellow phase code, based on the old action
+        green_phase_code = action_number * 3  # Obtain the green phase code, based on the old action
         traci.trafficlight.setPhase(tl_id, green_phase_code)
+
+    def _set_yellow_phase(self, old_action, tl_id):
+        """
+        Activate the correct yellow light combination in sumo
+        """
+        yellow_phase_code = old_action * 3 + 1  # Obtain the yellow phase code, based on the old action
+        traci.trafficlight.setPhase(tl_id, yellow_phase_code)
 
     def _set_red_phase(self, old_action, tl_id):
         """
         Activate the correct red light combination in sumo
         """
-        red_phase_code = old_action * 3 + 2  # obtain the yellow phase code, based on the old action
+        red_phase_code = old_action * 3 + 2  # Obtain the red phase code, based on the old action
         traci.trafficlight.setPhase(tl_id, red_phase_code)
 
     def reset(self):
         self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
-        # self._TrafficGen.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=random.randint(0, 9))
+
         try:
             traci.start(self._sumo_cmd)
         except:
             traci.close()
             traci.start(self._sumo_cmd)
+
         self.sim_length = config['max_steps']
         self.state = [0] * self.num_states
         self.waiting_time, self.queue = return_mean_statistics(self.waiting_time, self.queue, self.junction_statistics_dict)
         return self.state
 
     def render(self):
-        # Implement viz
+        # Implement visualization
         pass
 
     def get_tl_dicts(self, num_intersections):
@@ -197,3 +204,31 @@ class SUMO(Env):
             num_program_dict[f'TL{intersection}'] = 0
 
         return TL_list, action_dict, program_dict, num_program_dict
+
+
+def import_sumo_tools():
+    """
+    Import Python modules from the $SUMO_HOME/tools directory.
+    """
+    if 'SUMO_HOME' in os.environ:
+        tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
+        sys.path.append(tools)
+    else:
+        sys.exit("Please declare environment variable 'SUMO_HOME'")
+
+
+def configure_sumo(gui, model_path, model_id, sumocfg_file_name, max_steps):
+    """
+    Configure various parameters of SUMO.
+    """
+    # Setting the cmd mode or the visual mode
+    if gui:
+        sumo_binary = checkBinary('sumo-gui')
+    else:
+        sumo_binary = checkBinary('sumo')
+
+    # Setting the cmd command to run sumo at simulation time
+    model_path = os.path.join(f'intersection/{model_path}/model_{model_id}', sumocfg_file_name)
+    sumo_cmd = [sumo_binary, "-c", model_path, "--no-step-log", "true", "--waiting-time-memory", str(max_steps)]
+
+    return sumo_cmd

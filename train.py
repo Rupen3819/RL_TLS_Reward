@@ -9,10 +9,9 @@ from pandas import DataFrame
 
 from environment import SUMO
 from training import DQNTraining, PPOTraining, WOLPTraining
-from utils import import_configuration, create_train_path, create_test_path, add_master_data
+from settings import config
+from utils import create_train_path, create_test_path, add_master_data
 
-
-config = import_configuration()
 print(config)
 is_train = config['is_train']
 
