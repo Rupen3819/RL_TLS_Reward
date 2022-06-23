@@ -19,7 +19,7 @@ is_train = config['is_train']
 if is_train:
     env = SUMO()
 else:
-    from vehicle_statistics import VehicleStatistics
+    from stats.vehicle import VehicleStatistics
     vehicle_stats = VehicleStatistics()
     env = SUMO(vehicle_stats)
 
@@ -33,7 +33,7 @@ match agent_type:
         from agents.dqn_agent import DQNAgent
         agent = DQNAgent(
             env.num_states, env.action_space.n, config['hidden_dim'], config['fixed_action_space'],
-            env.TL_list, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
+            env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update'],
         )
         scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
@@ -42,7 +42,7 @@ match agent_type:
         from agents.ppo_agent import PPOAgent
         agent = PPOAgent(
             env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
-            env.TL_list, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
+            env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
             config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate']
         )
         scores, training_times = PPOTraining(agent, env, 'ppo').train(is_train=is_train)
@@ -60,9 +60,9 @@ match agent_type:
     case 'MADQN':
         from agents.madqn_agent import MADQNAgent
         agent = MADQNAgent(
-            env.num_states, env.action_space.n, len(env.TL_list), config['hidden_dim'], config['single_state_space'],
+            env.num_states, env.action_space.n, len(env.traffic_lights), config['hidden_dim'], config['single_state_space'],
             config['local_reward_signal'],
-            env.TL_list, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
+            env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update']
         )
         scores, training_times = DQNTraining(agent, env, 'madqn').train(is_train=is_train)
@@ -70,9 +70,9 @@ match agent_type:
     case 'MAPPO':
         from agents.mappo_agent import MAPPOAgent
         agent = MAPPOAgent(
-            env.num_states, env.action_space.n, len(env.TL_list), config['actor_dim'], config['critic_dim'],
+            env.num_states, env.action_space.n, len(env.traffic_lights), config['actor_dim'], config['critic_dim'],
             config['training_strategy'], config['actor_parameter_sharing'], config['critic_parameter_sharing'],
-            config['single_state_space'], config['local_reward_signal'],env.TL_list, config['batch_size'],
+            config['single_state_space'], config['local_reward_signal'],env.traffic_lights, config['batch_size'],
             config['n_epochs'], config['policy_clip'], config['gamma'], config['gae_lambda'],
             config['policy_learning_rate'], config['value_learning_rate']
         )
