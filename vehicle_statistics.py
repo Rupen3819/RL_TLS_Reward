@@ -52,11 +52,14 @@ class VehicleStatistics:
 
     def update(self):
         """Update the statistics for all vehicles, based on the current state of the simulation"""
+        if self.stats is None:
+            return
+
         car_ids = traci.vehicle.getIDList()
         time = traci.simulation.getTime()
 
         for car_id in car_ids:
-            vehicle_speed = traci.vehicle_getSpeed(car_id)
+            vehicle_speed = traci.vehicle.getSpeed(car_id)
             vehicle_position = traci.vehicle.getPosition(car_id)
             next_tls = traci.vehicle.getNextTLS(car_id)
             driving_sequence = [[time], [vehicle_position], [next_tls]]
@@ -95,7 +98,7 @@ class VehicleStatistics:
                     'Total_time_on_site': 0,
                     'Accumulated_waiting_time': 0
                 }
-                self.stats = self.stats.concat(new_car, ignore_index=True)
+                self.stats = pd.concat([self.stats, pd.DataFrame([new_car])], ignore_index=True)
 
     def save(self, path):
         """Save the current statistics as a new sheet in the spreadsheet"""
