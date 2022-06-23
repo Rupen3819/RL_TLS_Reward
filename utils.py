@@ -88,3 +88,11 @@ def add_master_data(path, config, scores, training_time, wait, queue):
     }])], ignore_index=True)
 
     master_df.to_excel(MASTER_DATA_FILE, index=False)
+
+
+# def get_options():
+#     optParser = optparse.OptionParser()
+#     optParser.add_option("--nogui", action="store_true",
+#                          default=False, help="run the commandline version of sumo")
+#     options, args = optParser.parse_args()
+#     return options
