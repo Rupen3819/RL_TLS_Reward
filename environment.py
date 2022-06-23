@@ -8,11 +8,11 @@ from gym import Env
 from gym.spaces import Discrete
 from sumolib import checkBinary
 
-from Statistics import init_statistics, return_mean_statistics, TL_list
+from stats.junction import JunctionStatistics, TL_list
 from generator import ModularTrafficGenerator
 from modular_road_network_structure import create_modular_road_network
 from settings import config
-from state import get_current_reward, return_reward, return_states, init_states, get_states, get_state_size
+from state import JunctionManager
 
 
 class SUMO(Env):
@@ -20,17 +20,24 @@ class SUMO(Env):
         import_sumo_tools()
 
         self.vehicle_stats = vehicle_stats
+
+        # Create the road topology
         self.model_path, self.model_id = create_modular_road_network(
             config['models_path_name'], config['num_intersections'], config['intersection_length']
         )
 
+        # Create a generator for creating traffic routes
         self._traffic_generator = ModularTrafficGenerator(
             config['max_steps'],
             config['n_cars_generated'],
             f'intersection/{self.model_path}/model_{self.model_id}/environment.net.xml'
         )
 
-        self.TL_list, self.action_dict, self.program_dict, self.num_program_dict = self.get_tl_dicts(config['num_intersections'])
+        self.traffic_lights = {}
+
+        for i in range(1, config['num_intersections'] + 1):
+            intersection_name = f'TL{i}'
+            self.traffic_lights[intersection_name] = str(i)
 
         self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
 
@@ -43,7 +50,7 @@ class SUMO(Env):
                 self.action_space_combinations = list(product(list(range(0, self.single_action_space.n)), repeat=config['num_intersections']))
         else:
             self.action_space = Discrete(config['num_actions'])
-            self.num_agents = len(self.TL_list)
+            self.num_agents = len(self.traffic_lights)
 
         self.green_duration = config['green_duration']
         self.yellow_duration = config['yellow_duration']
@@ -52,89 +59,78 @@ class SUMO(Env):
         self.generate_traffic()
         traci.start(self._sumo_cmd)
 
-        self.junction_dict = init_states(self.TL_list)
-        self.num_states = sum(i + 1 for i in list(get_state_size(self.junction_dict, self.num_program_dict).values()))
+        self.junction_manager = JunctionManager(self.traffic_lights)
+        self.num_states = sum(i + 1 for i in list(self.junction_manager.get_state_sizes().values()))
         self.init_state = [0] * self.num_states
         self.state = [0] * self.num_states
 
-        self.junction_statistics_dict = init_statistics(self.TL_list)
+        self.junction_stats = JunctionStatistics(self.traffic_lights)
+
         self.waiting_time = dict.fromkeys(TL_list)
         self.queue = dict.fromkeys(TL_list)
 
-        self._old_action = dict.fromkeys(self.TL_list, 0)
-        self._old_total_wait = 0
-        self._waiting_times = {}
-        self._waiting_old = 0
+        self.old_actions = dict.fromkeys(self.traffic_lights, 0)
         self.reward = 0
-        self.reward_old = 0
 
     def generate_traffic(self, seed=random.randint(0, 100)):
         self._traffic_generator.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=seed)
 
-    def step(self, action):
+    def _fixed_action_generator(self, actions):
+        for tl_id in actions:
+            yield self.old_actions[tl_id], actions[tl_id], tl_id
+
+    def _multi_action_generator(self, actions):
+        action_combination = self.action_space_combinations[actions]
+
+        for tl_index, tl_id in enumerate(self.traffic_lights):
+            yield self.old_actions[tl_id], action_combination[tl_index], tl_id
+
+    def step(self, actions: dict):
         if config['fixed_action_space'] or config['single_agent'] is False:
-            for tl_id in action:
-                if self._old_action[tl_id] != action[tl_id]:
-                    self._set_yellow_phase(self._old_action[tl_id], tl_id)
-                else:
-                    self._set_green_phase(action[tl_id], tl_id)
-            self._simulate(self.yellow_duration)
-
-            for tl_id in action:
-                if self._old_action[tl_id] != action[tl_id]:
-                    self._set_red_phase(self._old_action[tl_id], tl_id)
-            self._simulate(self.red_duration)
-
-            for tl_id in action:
-                self._set_green_phase(action[tl_id], tl_id)
-                self._simulate(self.green_duration)
-                self._old_action[tl_id] = action[tl_id]
+            action_generator = self._fixed_action_generator(actions)
         else:
-            action_combination = self.action_space_combinations[action]
+            action_generator = self._multi_action_generator(actions)
 
-            for tl_index, tl_id in enumerate(self.TL_list):
-                if self._old_action[tl_id] != action_combination[tl_index]:
-                    self._set_yellow_phase(self._old_action[tl_id], tl_id)
-                else:
-                    self._set_green_phase(action_combination[tl_index], tl_id)
-            self._simulate(self.yellow_duration)
+        for (old_action, new_action, traffic_light_id) in action_generator:
+            if old_action != new_action:
+                self._set_yellow_phase(old_action, traffic_light_id)
+            else:
+                self._set_green_phase(new_action, traffic_light_id)
 
-            for tl_index, tl_id in enumerate(self.TL_list):
-                if self._old_action[tl_id] != action_combination[tl_index]:
-                    self._set_red_phase(self._old_action[tl_id], tl_id)
-            self._simulate(self.red_duration)
+        self._simulate(self.yellow_duration)
 
-            for tl_index, tl_id in enumerate(self.TL_list):
-                self._set_green_phase(action_combination[tl_index], tl_id)
-                self._simulate(self.green_duration)
-                self._old_action[tl_id] = action_combination[tl_index]
+        for (old_action, new_action, traffic_light_id) in action_generator:
+            if old_action != new_action:
+                self._set_red_phase(old_action, traffic_light_id)
+
+        self._simulate(self.red_duration)
+
+        for (old_action, new_action, traffic_light_id) in action_generator:
+            self._set_green_phase(new_action, traffic_light_id)
+            self._simulate(self.green_duration)
+            self.old_actions[traffic_light_id] = new_action
 
         # Removed because it slows training down
-        # add_statistics_step(self.junction_statistics_dict)
-
-        #get_states(self.junction_dict)
+        # self.junction_stats.step()
 
         if config['reward_definition'] == 'waiting':
-            get_current_reward(self.junction_dict)
+            self.junction_manager.receive_rewards()
 
-        # full_reward = return_reward(self.action_dict, self.junction_dict)
-        # self.reward = sum(list(full_reward.values()))
-        self.reward = return_reward(self.action_dict, self.junction_dict)
-        self.reward_old = self.reward
+        self.reward = self.junction_manager.compute_rewards()
 
-        full_state = return_states(self.action_dict, self.junction_dict, self.program_dict, self.num_program_dict)
+        full_state = self.junction_manager.return_states()
         self.state = [item for sublist in list(full_state.values()) for item in sublist]
+
         if len(self.state) == 0:
             self.state = self.init_state
-        if traci.simulation.getTime() >= config['max_steps']+1000:
+
+        if traci.simulation.getTime() >= config['max_steps'] + 1000:
             done = True
             traci.close()
         else:
             done = False
 
         info = {}
-
-        # Return step information
         return self.state, self.reward, done, info
 
     def _simulate(self, steps_todo):
@@ -142,15 +138,15 @@ class SUMO(Env):
             traci.simulationStep()
 
             # Removed because it slows training down
-            # add_statistics_simulate(self.junction_statistics_dict)
+            # self.junction_stats.simulate()
 
             if config['reward_definition'] == 'waiting_fast':
-                get_current_reward(self.junction_dict)
+                self.junction_manager.receive_rewards()
 
             if self.vehicle_stats is not None:
                 self.vehicle_stats.update()
 
-            get_states(self.junction_dict)
+            self.junction_manager.receive_states()
 
     def _set_green_phase(self, action_number, tl_id):
         """
@@ -182,28 +178,13 @@ class SUMO(Env):
             traci.close()
             traci.start(self._sumo_cmd)
 
-        self.sim_length = config['max_steps']
         self.state = [0] * self.num_states
-        self.waiting_time, self.queue = return_mean_statistics(self.waiting_time, self.queue, self.junction_statistics_dict)
+        self.waiting_time, self.queue = self.junction_stats.compute_means(self.waiting_time, self.queue)
         return self.state
 
     def render(self):
         # Implement visualization
         pass
-
-    def get_tl_dicts(self, num_intersections):
-        TL_list = {}
-        action_dict = {}
-        program_dict = {}
-        num_program_dict = {}
-
-        for intersection in range(1, num_intersections + 1):
-            TL_list[f'TL{intersection}'] = f'{intersection}'
-            action_dict[f'TL{intersection}'] = 1
-            program_dict[f'TL{intersection}'] = 0
-            num_program_dict[f'TL{intersection}'] = 0
-
-        return TL_list, action_dict, program_dict, num_program_dict
 
 
 def import_sumo_tools():
