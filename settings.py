@@ -1,18 +1,23 @@
 import os
 import sys
-from types import SimpleNamespace
+# from types import SimpleNamespace
 
 import configparser
+import optparse
 
 
 def _import_configuration():
     """Read the appropriate config file (for training or testing)."""
     config_file = 'training_settings.ini'
+    options = _get_cli_options()
+    print(options)
     config = _parse_config_file(config_file, is_train_config=True)
+    _overwrite_config_with_options(config, options)
 
     if not config['is_train']:
         test_config_file = os.path.join(config['test_model_path_name'], config_file)
         config = _parse_config_file(test_config_file, is_train_config=False)
+        _overwrite_config_with_options(config, options)
 
     return config
 
@@ -129,6 +134,21 @@ def _parse_config_file(config_file, is_train_config):
         config['is_train'] = False
 
     return config
+
+
+def _get_cli_options():
+    option_parser = optparse.OptionParser()
+    option_parser.add_option('--test', action='store_false', dest='is_train')
+    option_parser.add_option('--total_episodes', type='int', action='store', dest='total_episodes')
+    options, args = option_parser.parse_args()
+    print(options)
+    return options
+
+
+def _overwrite_config_with_options(config, options):
+    for option_name, value in options.__dict__.items():
+        if value is not None:
+            config[option_name] = value
 
 
 # config = SimpleNamespace(**_import_configuration())
