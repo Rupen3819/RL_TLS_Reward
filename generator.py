@@ -1,7 +1,9 @@
 import math
-import numpy as np, numpy.random
-from xml.dom import minidom
+import os
 import random
+from xml.dom import minidom
+
+import numpy as np
 
 
 class TrafficGenerator:
@@ -91,7 +93,6 @@ class ModularTrafficGenerator:
         #self.rout_list = self.generate_rout_dict(0)
         #print(self.rout_list)
         #self.generate_routfile(0)
-
 
     def get_outer_junctions(self) -> dict:
         xml_net = minidom.parse(self.netfile)
@@ -208,7 +209,7 @@ class ModularTrafficGenerator:
 
     def generate_routefile(self, model_path, model_id, seed):
         rout_list = self.generate_rout_dict(seed)
-        with open(f"intersection/{model_path}/model_{model_id}/modular_routes.rou.xml", "w") as routes:
+        with open(os.path.join(model_path, 'modular_routes.rou.xml'), 'w') as routes:
             print("""<routes>
              <vType accel="1.0" decel="4.5" id="standard_car" length="5.0" minGap="2.5" maxSpeed="25" sigma="0.5" />
                     """, file=routes)

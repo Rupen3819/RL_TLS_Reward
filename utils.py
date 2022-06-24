@@ -7,48 +7,38 @@ import pandas as pd
 MASTER_DATA_FILE = 'Masterdata.xlsx'
 
 
-def set_intersection_path(models_path_name):
+def create_intersection_path(models_path_name):
     """
     Create a new intersection model path with an incremental integer, also considering previously created model paths.
     """
     models_path = models_path_name.split('/', 1)[1]
     train_model_path = os.path.join(os.getcwd(), f'models/{models_path}', '')
-    intersection_model_path = os.path.join(os.getcwd(), f'intersection/{models_path}', '')
     os.makedirs(os.path.dirname(train_model_path), exist_ok=True)
-    os.makedirs(os.path.dirname(intersection_model_path), exist_ok=True)
 
-    dir_content = os.listdir(train_model_path)
-    if dir_content:
-        for d in dir_content:
-            if d == '.DS_Store':
-                os.remove(os.path.join(train_model_path, d))
-                dir_content = os.listdir(train_model_path)
-        previous_versions = [int(name.split("_")[1]) for name in dir_content]
-        new_version = str(max(previous_versions) + 1)
-    else:
-        new_version = '1'
-
-    data_path = os.path.join(intersection_model_path, 'model_' + new_version, '')
-    os.makedirs(os.path.dirname(data_path), exist_ok=True)
-    return new_version
+    intersection_model_relative_path = f'intersection/{models_path}'
+    return create_incremental_path(intersection_model_relative_path)
 
 
 def create_train_path(models_path_name):
     """
     Create a new model path with an incremental integer, also considering previously created model paths
     """
-    models_path = os.path.join(os.getcwd(), models_path_name, '')
-    os.makedirs(os.path.dirname(models_path), exist_ok=True)
+    return create_incremental_path(models_path_name)
+
+
+def create_incremental_path(relative_path):
+    path = os.path.join(os.getcwd(), relative_path, '')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
     new_version = 1
-    dir_content = os.listdir(models_path)
+    dir_content = os.listdir(path)
     if dir_content:
         previous_versions = [int(name.split('_')[-1]) for name in dir_content if not name.startswith('.')]
         new_version = max(previous_versions) + 1
 
-    data_path = os.path.join(models_path, 'model_' + str(new_version), '')
-    os.makedirs(os.path.dirname(data_path), exist_ok=True)
-    return data_path
+    new_path = os.path.join(path, 'model_' + str(new_version), '')
+    os.makedirs(os.path.dirname(new_path), exist_ok=True)
+    return new_path, new_version
 
 
 def create_test_path(test_model_path_name):
@@ -90,9 +80,4 @@ def add_master_data(path, config, scores, training_time, wait, queue):
     master_df.to_excel(MASTER_DATA_FILE, index=False)
 
 
-# def get_options():
-#     optParser = optparse.OptionParser()
-#     optParser.add_option("--nogui", action="store_true",
-#                          default=False, help="run the commandline version of sumo")
-#     options, args = optParser.parse_args()
-#     return options
+

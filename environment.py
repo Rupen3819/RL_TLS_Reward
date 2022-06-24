@@ -30,7 +30,7 @@ class SUMO(Env):
         self._traffic_generator = ModularTrafficGenerator(
             config['max_steps'],
             config['n_cars_generated'],
-            f'intersection/{self.model_path}/model_{self.model_id}/environment.net.xml'
+            os.path.join(self.model_path, 'environment.net.xml')
         )
 
         self.traffic_lights = {}
@@ -209,7 +209,7 @@ def configure_sumo(gui, model_path, model_id, sumocfg_file_name, max_steps):
         sumo_binary = checkBinary('sumo')
 
     # Setting the cmd command to run sumo at simulation time
-    model_path = os.path.join(f'intersection/{model_path}/model_{model_id}', sumocfg_file_name)
+    model_path = os.path.join(model_path, sumocfg_file_name)
     sumo_cmd = [sumo_binary, "-c", model_path, "--no-step-log", "true", "--waiting-time-memory", str(max_steps)]
 
     return sumo_cmd

@@ -1,15 +1,14 @@
 import os
-import glob
 import math
 from operator import sub
 
 from xml.dom import minidom
 from shutil import copy
 
-from utils import set_intersection_path
+from utils import create_intersection_path
 
 
-def create_node_xmlfile(model_path, model_id, num_nodes, len_edges):
+def create_node_xmlfile(model_path, num_nodes, len_edges):
     def get_grid_size(num_nodes):
         grid_base = math.floor(math.sqrt(num_nodes))
         grid_base_nodes = int(math.pow(grid_base, 2))
@@ -186,14 +185,15 @@ def create_node_xmlfile(model_path, model_id, num_nodes, len_edges):
 
     xml_str = xml.toprettyxml(indent ="\t")
 
-    node_file_path = f'intersection/{model_path}/model_{model_id}/Ingolstadt_{num_nodes}_Nodes.nod.xml'
+    node_file_path = os.path.join(model_path, f'Ingolstadt_{num_nodes}_Nodes.nod.xml')
 
     with open(node_file_path, "w") as f:
         f.write(xml_str)
 
     return square_grid, square_grid_list, square_grid_list_original, node_file_path
 
-def create_edge_xmlfile(model_path, model_id, square_grid, square_grid_list, square_grid_list_original):
+
+def create_edge_xmlfile(model_path, square_grid, square_grid_list, square_grid_list_original):
     xml = minidom.Document()
 
     edges = xml.createElement('edges')
@@ -290,14 +290,15 @@ def create_edge_xmlfile(model_path, model_id, square_grid, square_grid_list, squ
 
     xml_str = xml.toprettyxml(indent ="\t")
 
-    edge_file_path = f'intersection/{model_path}/model_{model_id}/Ingolstadt_{int(len(edge_combinations) / 2)}_Edges.edg.xml'
+    edge_file_path = os.path.join(model_path, f'Ingolstadt_{len(edge_combinations) // 2}_Edges.edg.xml')
 
     with open(edge_file_path, "w") as f:
         f.write(xml_str)
     
     return square_grid_edges, edge_file_path
 
-def create_connection_xmlfile(model_path, model_id, square_grid, square_grid_edges):
+
+def create_connection_xmlfile(model_path, square_grid, square_grid_edges):
     xml = minidom.Document()
 
     connections = xml.createElement('connections')
@@ -379,14 +380,15 @@ def create_connection_xmlfile(model_path, model_id, square_grid, square_grid_edg
 
     xml_str = xml.toprettyxml(indent ="\t")
 
-    connection_file_path = f'intersection/{model_path}/model_{model_id}/Ingolstadt_{len(square_grid_edges)}_Connections.con.xml'
+    connection_file_path = os.path.join(model_path, f'Ingolstadt_{len(square_grid_edges)}_Connections.con.xml')
 
     with open(connection_file_path, "w") as f:
         f.write(xml_str)
     
     return connection_file_path
 
-def create_tllogic_xmlfile(model_path, model_id, square_grid):
+
+def create_tllogic_xmlfile(model_path, square_grid):
     xml = minidom.Document()
 
     tllogics = xml.createElement('tlLogics')
@@ -425,34 +427,35 @@ def create_tllogic_xmlfile(model_path, model_id, square_grid):
 
     xml_str = xml.toprettyxml(indent ="\t")
 
-    tllogic_file_path = f'intersection/{model_path}/model_{model_id}/Ingolstadt_{len(square_grid_nodes_list)}_TrafficLights.tll.xml'
+    tllogic_file_path = os.path.join(model_path, f'Ingolstadt_{len(square_grid_nodes_list)}_TrafficLights.tll.xml')
 
     with open(tllogic_file_path, "w") as f:
         f.write(xml_str)
     
     return tllogic_file_path
 
-def create_env_xmlfile(model_path, model_id, node_files, edge_files, connection_files, tllogic_files):
-    env_file = f'intersection/{model_path}/model_{model_id}/environment.net.xml'
+
+def create_env_xmlfile(model_path, node_files, edge_files, connection_files, tllogic_files):
+    env_file = os.path.join(model_path, 'environment.net.xml')
 
     os.system(f'netconvert --node-files={node_files} --edge-files={edge_files} --connection-files={connection_files} --tllogic-files={tllogic_files} -o {env_file}')
 
+
 def create_modular_road_network(models_path_name, number_nodes, length_edges=100):
-    model_id = set_intersection_path(models_path_name)
-    model_path = models_path_name.split('/', 1)[1]
+    model_path, model_id = create_intersection_path(models_path_name)
 
     # files = glob.glob('intersection/*')
     # for f in files:
     #     if f[-1]=="l" and f[-5]!="u":
     #         os.remove(f)
 
-    square_grid, square_grid_list, square_grid_list_original, node_file = create_node_xmlfile(model_path=model_path, model_id=model_id, num_nodes=number_nodes, len_edges=length_edges)
-    square_grid_edges, edge_file = create_edge_xmlfile(model_path=model_path, model_id=model_id, square_grid=square_grid, square_grid_list=square_grid_list, square_grid_list_original=square_grid_list_original)
-    connection_file = create_connection_xmlfile(model_path=model_path, model_id=model_id, square_grid=square_grid, square_grid_edges=square_grid_edges)
-    tllogic_file = create_tllogic_xmlfile(model_path=model_path, model_id=model_id, square_grid=square_grid)
-    create_env_xmlfile(model_path=model_path, model_id=model_id, node_files=node_file, edge_files=edge_file, connection_files=connection_file, tllogic_files=tllogic_file)
+    square_grid, square_grid_list, square_grid_list_original, node_file = create_node_xmlfile(model_path=model_path, num_nodes=number_nodes, len_edges=length_edges)
+    square_grid_edges, edge_file = create_edge_xmlfile(model_path=model_path, square_grid=square_grid, square_grid_list=square_grid_list, square_grid_list_original=square_grid_list_original)
+    connection_file = create_connection_xmlfile(model_path=model_path, square_grid=square_grid, square_grid_edges=square_grid_edges)
+    tllogic_file = create_tllogic_xmlfile(model_path=model_path, square_grid=square_grid)
+    create_env_xmlfile(model_path=model_path, node_files=node_file, edge_files=edge_file, connection_files=connection_file, tllogic_files=tllogic_file)
 
-    copy('intersection/sumo_config.sumocfg', f'intersection/{model_path}/model_{model_id}/sumo_config.sumocfg')
+    copy('intersection/sumo_config.sumocfg', os.path.join(model_path, 'sumo_config.sumocfg'))
 
     return model_path, model_id
 

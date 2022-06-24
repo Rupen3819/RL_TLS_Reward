@@ -31,7 +31,7 @@ class EpisodicTraining:
         scores_window = deque(maxlen=self.EPISODE_INTERVAL)  # Recent window of episode scores
 
         if is_train:
-            path = create_train_path(config['models_path_name'])
+            path, _ = create_train_path(config['models_path_name'])
             model_path = os.path.join(path, self.model_name)
             print('Training results will be saved in:', path)
             copyfile(src='training_settings.ini', dst=os.path.join(path, 'training_settings.ini'))

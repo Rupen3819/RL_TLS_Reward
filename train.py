@@ -82,7 +82,7 @@ match agent_type:
         sys.exit(f'Invalid agent_type: {agent_type} is not an implemented agent')
 
 if is_train:
-    path = create_train_path(config['models_path_name'])
+    path, _ = create_train_path(config['models_path_name'])
     print('Training results will be saved in:', path)
     copyfile(src='training_settings.ini', dst=os.path.join(path, 'training_settings.ini'))
 else:
