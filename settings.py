@@ -3,27 +3,9 @@ import sys
 # from types import SimpleNamespace
 
 import configparser
-import optparse
+import argparse
 
-
-def _import_configuration():
-    """Read the appropriate config file (for training or testing)."""
-    config_file = 'training_settings.ini'
-    options = _get_cli_options()
-    print(options)
-    config = _parse_config_file(config_file, is_train_config=True)
-    _overwrite_config_with_options(config, options)
-
-    if not config['is_train']:
-        test_config_file = os.path.join(config['test_model_path_name'], config_file)
-        config = _parse_config_file(test_config_file, is_train_config=False)
-        _overwrite_config_with_options(config, options)
-
-    return config
-
-
-def _parse_config_file(config_file, is_train_config):
-    settings = {
+_settings = {
         'simulation': {
             'gui': 'bool',
             'total_episodes': 'int',
@@ -98,11 +80,30 @@ def _parse_config_file(config_file, is_train_config):
         }
     }
 
+
+def _import_configuration():
+    """Read the appropriate config file (for training or testing)."""
+    config_file = 'training_settings.ini'
+    options = _get_cli_options()
+    print(options)
+    config = _parse_config_file(config_file, is_train_config=True)
+    _overwrite_config_with_options(config, options)
+
+    if not config['is_train']:
+        test_config_file = os.path.join(config['test_model_path_name'], config_file)
+        config = _parse_config_file(test_config_file, is_train_config=False)
+        _overwrite_config_with_options(config, options)
+
+    return config
+
+
+def _parse_config_file(config_file, is_train_config):
+
     content = configparser.ConfigParser()
     content.read(config_file)
     config = {}
 
-    for category, category_settings in settings.items():
+    for category, category_settings in _settings.items():
         for setting, setting_type in category_settings.items():
             match setting_type:
                 case 'bool':
@@ -137,12 +138,37 @@ def _parse_config_file(config_file, is_train_config):
 
 
 def _get_cli_options():
-    option_parser = optparse.OptionParser()
-    option_parser.add_option('--test', action='store_false', dest='is_train')
-    option_parser.add_option('--total_episodes', type='int', action='store', dest='total_episodes')
-    options, args = option_parser.parse_args()
-    print(options)
-    return options
+    converters = {
+        'int': int,
+        'float': float,
+        'string': str,
+    }
+
+    arg_parser = argparse.ArgumentParser()
+
+    for category, category_settings in _settings.items():
+        for setting, setting_type in category_settings.items():
+            cli_option = setting.replace('_', '-')
+
+            if setting_type == 'bool':
+                action = 'store_true'
+                arg_parser.add_argument(f'--{cli_option}', action=action, default=None, dest=setting)
+                arg_parser.add_argument(f'--not-{cli_option}', action='store_false', default=None, dest=setting)
+            elif setting_type == 'int_list':
+                arg_parser.add_argument(f'--{cli_option}', action=_IntListAction, default=None, dest=setting)
+            else:
+                action = 'store'
+                convert_type = converters[setting_type]
+                arg_parser.add_argument(f'--{cli_option}', action=action, type=convert_type, default=None, dest=setting)
+
+    arg_parser.add_argument('--test', action='store_false', dest='is_train')
+    return arg_parser.parse_args()
+
+
+class _IntListAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        value = [int(v) for v in values.split(',')]
+        setattr(namespace, self.dest, value)
 
 
 def _overwrite_config_with_options(config, options):
