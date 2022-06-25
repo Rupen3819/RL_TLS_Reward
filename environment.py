@@ -87,11 +87,11 @@ class SUMO(Env):
 
     def step(self, actions: dict):
         if config['fixed_action_space'] or config['single_agent'] is False:
-            action_generator = self._fixed_action_generator(actions)
+            action_generator = self._fixed_action_generator
         else:
-            action_generator = self._multi_action_generator(actions)
+            action_generator = self._multi_action_generator
 
-        for (old_action, new_action, traffic_light_id) in action_generator:
+        for (old_action, new_action, traffic_light_id) in action_generator(actions):
             if old_action != new_action:
                 self._set_yellow_phase(old_action, traffic_light_id)
             else:
@@ -99,13 +99,13 @@ class SUMO(Env):
 
         self._simulate(self.yellow_duration)
 
-        for (old_action, new_action, traffic_light_id) in action_generator:
+        for (old_action, new_action, traffic_light_id) in action_generator(actions):
             if old_action != new_action:
                 self._set_red_phase(old_action, traffic_light_id)
 
         self._simulate(self.red_duration)
 
-        for (old_action, new_action, traffic_light_id) in action_generator:
+        for (old_action, new_action, traffic_light_id) in action_generator(actions):
             self._set_green_phase(new_action, traffic_light_id)
             self._simulate(self.green_duration)
             self.old_actions[traffic_light_id] = new_action
