@@ -107,8 +107,10 @@ class SUMO(Env):
 
         for (old_action, new_action, traffic_light_id) in action_generator(actions):
             self._set_green_phase(new_action, traffic_light_id)
-            self._simulate(self.green_duration)
             self.old_actions[traffic_light_id] = new_action
+
+        self._simulate(self.green_duration)
+
 
         # Removed because it slows training down
         # self.junction_stats.step()
