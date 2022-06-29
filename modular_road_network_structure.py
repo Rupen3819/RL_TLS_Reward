@@ -1,400 +1,277 @@
-import os
 import math
-from operator import sub
-
-from xml.dom import minidom
+import os
+from enum import Enum
 from shutil import copy
+from xml.dom import minidom
 
+from settings import config
 from utils import create_intersection_path
 
 
-def create_node_xmlfile(model_path, num_nodes, len_edges):
-    def get_grid_size(num_nodes):
-        grid_base = math.floor(math.sqrt(num_nodes))
-        grid_base_nodes = int(math.pow(grid_base, 2))
-        grid_extra_nodes = num_nodes - grid_base_nodes
+class Direction(Enum):
+    NORTH = 0
+    EAST = 1
+    SOUTH = 2
+    WEST = 3
 
-        return grid_base, grid_extra_nodes
+    def opposite(self):
+        return Direction((self.value + 2) % 4)
 
+    def relative(self, next_direction):
+        relative_directions = [RelativeDirection.LEFT, RelativeDirection.STRAIGHT, RelativeDirection.RIGHT]
+        relative_direction_index = ((self.value - next_direction.value) % 4) - 1
+        return relative_directions[relative_direction_index]
+
+
+class RelativeDirection(Enum):
+    LEFT = 0
+    STRAIGHT = 1
+    RIGHT = 2
+
+
+def is_junction_node(node_name):
+    return not node_name.startswith('c')
+
+
+def add_bidirectional_edges(edges, junction_out_roads, src_node, dest_node, direction):
+    if is_junction_node(src_node) or is_junction_node(dest_node):
+        prefix = 'ce'
+    else:
+        prefix = 'e'
+
+    out_edge = f'{prefix}{len(edges) + 1}'
+    edges[out_edge] = (src_node, dest_node)
+
+    in_edge = f'{prefix}{len(edges) + 1}'
+    edges[in_edge] = (dest_node, src_node)
+
+    if is_junction_node(src_node):
+        if src_node not in junction_out_roads:
+            junction_out_roads[src_node] = {}
+        junction_out_roads[src_node][direction] = out_edge
+
+    if is_junction_node(dest_node):
+        if dest_node not in junction_out_roads:
+            junction_out_roads[dest_node] = {}
+        junction_out_roads[dest_node][direction.opposite()] = in_edge
+
+    return out_edge, in_edge
+
+
+def create_road_network_topology(num_nodes):
+    # Map from traffic light name (i.e. '3') to its grid coordinates
+    junction_nodes: dict[str, (int, int)] = {}
+
+    # Map from name of unregulated node (i.e 'c8') to its grid coordinates
+    perimeter_nodes: dict[str, (int, int)] = {}
+
+    # Reverse map of junction_nodes (maps coordinates to traffic light name)
+    node_from_coordinates: dict[(int, int), str] = {}
+
+    # Map from traffic light name, to a map from direction (i.e. NORTH) to the road edge name
+    # of the road travelling in that direction away from the junction
+    junction_out_roads: dict[str, dict:[Direction, str]] = {}
+
+    # Map from road edge name to a 2-tuple
+    road_edges: dict[str, (str, str)] = {}
+
+    max_y = math.ceil(math.sqrt(num_nodes))  # The max y coordinate of any node in the network
+    max_x = round(math.sqrt(num_nodes))  # The max x coordinate of any node in the network
+
+    corner_index = 0  # Index of the top-right square in the grid for the current layer
+    corner_increment = 2  # Used to easily compute the next value of corner_index
+
+    # The current layer of the square grid. Layers are added first from left to right on the top row,
+    # and then top to bottom on the right column
+    layer = 1
+
+    for i in range(num_nodes):
+        node_name = str(i + 1)
+
+        if i < corner_index:
+            # Current square is on the top row of the grid
+            x, y = i - (layer - 1) ** 2 + 1, layer
+            dest_node_name = node_from_coordinates[x, y - 1]
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, dest_node_name, Direction.SOUTH)
+        elif i > corner_index:
+            # Current square is on the rightmost column of the grid
+            x, y = layer, layer ** 2 - i
+            dest_node_name = node_from_coordinates[x, y + 1]
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, dest_node_name, Direction.NORTH)
+        else:  # i == corner_index
+            # Current square is the top right square of the grid
+            x, y = layer, layer
+
+        if x == 1:
+            # Current square is in the leftmost column of the grid
+            extra_node_name = f'c{num_nodes + len(perimeter_nodes) + 1}'
+            perimeter_nodes[extra_node_name] = (x - 0.75, y)
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, extra_node_name, Direction.WEST)
+        elif x > 1:
+            # Current square is in any other column of the grid
+            dest_node_name = node_from_coordinates[x - 1, y]
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, dest_node_name, Direction.WEST)
+
+        if (
+            x == max_x or
+            (i >= corner_index and i + corner_increment + 1 >= num_nodes) or
+            (i == num_nodes - 1 and i <= corner_index)
+        ):
+            # Current square is in the rightmost column of the grid (which may not be a full column)
+            # OR current square is in the current column, and no square will later be placed to the right of it
+            # OR current square is the last square, and is in the top column
+            extra_node_name = f'c{num_nodes + len(perimeter_nodes) + 1}'
+            perimeter_nodes[extra_node_name] = (x + 0.75, y)
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, extra_node_name, Direction.EAST)
+
+        if (
+            y == max_y or
+            (i <= corner_index and i + corner_increment - 1 >= num_nodes)
+        ):
+            # Current square is in the top row (which may not be a full row)
+            # OR current square is in the current row, and no square will later be placed above it
+            extra_node_name = f'c{num_nodes + len(perimeter_nodes) + 1}'
+            perimeter_nodes[extra_node_name] = (x, y + 0.75)
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, extra_node_name, Direction.NORTH)
+
+        if (
+            y == 1 or
+            (i == num_nodes - 1 and i >= corner_index)
+        ):
+            # Current square is in the bottom row of the grid
+            # OR current square is the last square, and is in the rightmost column
+            extra_node_name = f'c{num_nodes + len(perimeter_nodes) + 1}'
+            perimeter_nodes[extra_node_name] = (x, y - 0.75)
+            add_bidirectional_edges(road_edges, junction_out_roads, node_name, extra_node_name, Direction.SOUTH)
+
+            # This is the last square in the layer, so we increase layer, corner_index, and corner_increment
+            layer += 1
+            corner_index += corner_increment
+            corner_increment += 2
+
+        junction_nodes[node_name] = (x, y)
+        node_from_coordinates[x, y] = node_name
+
+    road_connections = []
+
+    for edge_name, (from_node, to_node) in road_edges.items():
+        if is_junction_node(to_node):
+            next_edges = []
+
+            in_direction = None
+            for (direction, next_edge_name) in junction_out_roads[to_node].items():
+                next_edge_src, next_edge_dest = road_edges[next_edge_name]
+                if from_node == next_edge_dest:
+                    in_direction = direction
+                else:
+                    next_edges.append((direction, next_edge_name))
+
+            if in_direction is None:
+                continue
+
+            for out_direction, next_edge_name in next_edges:
+                relative_direction = out_direction.relative(in_direction)
+                connection = (edge_name, next_edge_name, relative_direction)
+                road_connections.append(connection)
+
+    return junction_nodes | perimeter_nodes, road_edges, road_connections
+
+
+def create_node_xml_file(model_path, grid_nodes, num_nodes, edge_length):
     xml = minidom.Document()
-
     nodes = xml.createElement('nodes')
     xml.appendChild(nodes)
 
-    size_generic_grid, num_extra_nodes = get_grid_size(num_nodes=num_nodes)
-    square_grid = {}
-    grid_size_counter = 1
-
-    def update_square_grid(coordinate_id, coordinate_value):
-        nonlocal grid_size_counter
-
-        square_grid[coordinate_id] = coordinate_value
-        grid_size_counter += 1
-
-    """Generate square grid for nodes with coordinates"""
-    if num_nodes < 4:
-        if num_nodes == 1:
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 1))
-        elif num_nodes == 2:
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 1))
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 2))
-        elif num_nodes == 3:
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 1))
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 2))
-            update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(2, 2))
-    else:
-        for grid_base in range(size_generic_grid - 1):
-            if grid_base == 0:
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 1))
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(1, 2))
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(2, 2))
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(2, 1))
-            else:
-                coordinate_start_value = 1
-                coordinate_end_value = grid_base + 2
-                loop_range = 3 + 2 * grid_base
-                loop_halfway_point = math.floor(loop_range / 2)
-
-                for grid_node in range(loop_range):
-                    if grid_node < loop_halfway_point:
-                        update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(coordinate_start_value, coordinate_end_value))
-                        coordinate_start_value += 1
-                    else:
-                        update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(coordinate_end_value, coordinate_start_value))
-                        coordinate_start_value -= 1
-        
-        loop_range_extra = 3 + 2 * (size_generic_grid - 1)
-        loop_halfway_point_extra = math.floor(loop_range_extra / 2)
-        coordinate_extra_start_value = 1
-        coordinate_extra_end_value = square_grid[f'{grid_size_counter - 1}'][0] + 1
-
-        for grid_extra in range(num_extra_nodes):
-            if grid_extra < loop_halfway_point_extra:
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(coordinate_extra_start_value, coordinate_extra_end_value))
-                coordinate_extra_start_value += 1
-            else:
-                update_square_grid(coordinate_id=f'{grid_size_counter}', coordinate_value=(coordinate_extra_end_value, coordinate_extra_start_value))
-                coordinate_extra_start_value -= 1
-
-    """Add helper nodes for connection edges to outer nodes"""
-    grid_coordinates = []
-    grid_x_coordinates = []
-    grid_y_coordinates = []
-
-    for square_grid_node in square_grid:
-        grid_coordinates.append(square_grid[f'{square_grid_node}'])
-        grid_x_coordinates.append(square_grid[f'{square_grid_node}'][0])
-        grid_y_coordinates.append(square_grid[f'{square_grid_node}'][1])
-
-    square_grid_list = []
-    square_grid_list_x = []
-    square_grid_list_y = []
-    square_grid_list_original = []
-    square_grid_y = []
-    for y_nodes in range(max(grid_y_coordinates) + 2):
-        square_grid_y.append(None)
-
-    for x_nodes in range(max(grid_x_coordinates) + 2):
-        square_grid_list.append(list(square_grid_y))
-        square_grid_list_x.append(list(square_grid_y))
-        square_grid_list_y.append(list(square_grid_y))
-        square_grid_list_original.append(list(square_grid_y))
-
-    for node_coordinate in grid_coordinates:
-        square_grid_list[node_coordinate[0]][node_coordinate[1]] = node_coordinate
-        square_grid_list_x[node_coordinate[0]][node_coordinate[1]] = node_coordinate
-        square_grid_list_y[node_coordinate[0]][node_coordinate[1]] = node_coordinate
-        square_grid_list_original[node_coordinate[0]][node_coordinate[1]] = node_coordinate
-
-    for list_x in range(len(square_grid_list) - 1):
-        list_x_value_one = square_grid_list_original[list_x]
-        list_x_value_two = square_grid_list_original[list_x + 1]
-
-        for list_y in range(1, len(list_x_value_one) - 1):
-            if list_x_value_one[list_y] is None and list_x_value_two[list_y] is not None:
-                square_grid_list_x[list_x][list_y] = (list_x_value_two[list_y][0] - 0.75, list_x_value_two[list_y][1])
-            elif list_x_value_one[list_y] is not None and list_x_value_two[list_y] is None:
-                if list_x_value_two[list_y - 1] is None and list_x_value_two[list_y + 1] is None:
-                    square_grid_list_x[list_x + 1][list_y] = (list_x_value_one[list_y][0] + 0.75, list_x_value_one[list_y][1])
-                else:
-                    square_grid_list_x[list_x + 1][list_y] = [(list_x_value_one[list_y][0] + 0.75, list_x_value_one[list_y][1]), None]
-
-    for list_y in range(1, len(square_grid_list) - 1):
-        list_x_value = square_grid_list_original[list_y]
-        list_x_value_dimensions = [0, len(list_x_value) - 1]
-
-        if list_x_value.count(None) == 2:
-            for list_x in list_x_value_dimensions:
-                edge_list_x = list_x + 0.25 if list_x == 0 else list_x - 0.25
-                square_grid_list_y[list_y][list_x] = (list_y, edge_list_x)
-        else:
-            for list_x in range(list_x_value_dimensions[1], -1, -1):
-                if list_x == 0 and square_grid_list_original[list_y][1] is not None:
-                    square_grid_list_y[list_y][0] = (list_y, 0.25)
-                elif square_grid_list_original[list_y][list_x] is None and square_grid_list_original[list_y][list_x - 1] is not None:
-                    if square_grid_list_original[list_y - 1][list_x] is None:
-                        square_grid_list_y[list_y][list_x] = (list_y, list_x - 0.25)
-                    else:
-                        square_grid_list_y[list_y][list_x] = [None, (list_y, list_x - 0.25)]
-                elif square_grid_list_original[list_y][list_x] is not None and square_grid_list_original[list_y][list_x - 1] is None:
-                    if square_grid_list_original[list_y - 1][list_x - 1] is None:
-                        square_grid_list_y[list_y][list_x - 1] = (list_y, list_x - 0.75)
-                    else:
-                        square_grid_list_y[list_y][list_x - 1] = [None, (list_y, list_x - 0.75)]
-
-    for list_x in range(len(square_grid_list)):
-        for list_y in range(len(square_grid_list[list_x])):
-            if not isinstance(square_grid_list_x[list_x][list_y], list) and not isinstance(square_grid_list_y[list_x][list_y], list):
-                if square_grid_list_x[list_x][list_y] is None and square_grid_list_y[list_x][list_y] is not None:
-                    square_grid_list[list_x][list_y] = square_grid_list_y[list_x][list_y]
-                elif square_grid_list_x[list_x][list_y] is not None and square_grid_list_y[list_x][list_y] is None:
-                    square_grid_list[list_x][list_y] = square_grid_list_x[list_x][list_y]
-            elif isinstance(square_grid_list_x[list_x][list_y], list) and isinstance(square_grid_list_y[list_x][list_y], list):
-                square_grid_list[list_x][list_y] = [square_grid_list_x[list_x][list_y][0], square_grid_list_y[list_x][list_y][1]]
-            else:
-                if square_grid_list_x[list_x][list_y] is None and square_grid_list_y[list_x][list_y] is not None:
-                    square_grid_list[list_x][list_y] = square_grid_list_y[list_x][list_y][1]
-                elif square_grid_list_x[list_x][list_y] is not None and square_grid_list_y[list_x][list_y] is None:
-                    square_grid_list[list_x][list_y] = square_grid_list_x[list_x][list_y][0]
-
-    for list_y in square_grid_list:
-        for list_x in list_y:
-            if list_x is not None and list_x not in grid_coordinates:
-                for grid_key_index in range(1, 3 if isinstance(list_x, list) else 2):
-                    if 'c' in list(square_grid)[-1]:
-                        square_grid_key = list(square_grid)[-1].replace('c', '')
-                        grid_key = f'c{int(square_grid_key) + grid_key_index}'
-                    else:
-                        grid_key = f'c{int(list(square_grid)[-1]) + grid_key_index}'
-                    square_grid[grid_key] = list_x[grid_key_index - 1] if isinstance(list_x, list) else list_x
-
     """Create nod.xml file"""
-    for node_element in square_grid:
-        node_x = square_grid[node_element][0] * len_edges
-        node_y = square_grid[node_element][1] * len_edges
+    for node_element, (x, y) in grid_nodes.items():
+        node_x = x * edge_length
+        node_y = y * edge_length
 
-        nodeChild = xml.createElement('node')
-        nodeChild.setAttribute('id', node_element)
-        nodeChild.setAttribute('x', f'{node_x}')
-        nodeChild.setAttribute('y', f'{node_y}')
-        nodeChild.setAttribute('type', 'unregulated' if 'c' in node_element else 'traffic_light')
-        if not 'c' in node_element:
-            nodeChild.setAttribute('tl', f'TL{node_element}')
+        node_child = xml.createElement('node')
+        node_child.setAttribute('id', node_element)
+        node_child.setAttribute('x', f'{node_x}')
+        node_child.setAttribute('y', f'{node_y}')
+        node_child.setAttribute('type', 'traffic_light' if is_junction_node(node_element) else 'unregulated')
+        if is_junction_node(node_element):
+            node_child.setAttribute('tl', f'TL{node_element}')
 
-        nodes.appendChild(nodeChild)
+        nodes.appendChild(node_child)
 
-    xml_str = xml.toprettyxml(indent ="\t")
-
+    xml_str = xml.toprettyxml(indent="\t")
     node_file_path = os.path.join(model_path, f'Ingolstadt_{num_nodes}_Nodes.nod.xml')
 
     with open(node_file_path, "w") as f:
         f.write(xml_str)
 
-    return square_grid, square_grid_list, square_grid_list_original, node_file_path
+    return node_file_path
 
 
-def create_edge_xmlfile(model_path, square_grid, square_grid_list, square_grid_list_original):
+def create_edge_xml_file(model_path, road_edges):
     xml = minidom.Document()
-
     edges = xml.createElement('edges')
     xml.appendChild(edges)
 
-    square_grid_edges = {}
-    grid_edge_size_counter = 1
-
-    def update_square_grid_edges(coordinate_id, coordinate_value):
-        nonlocal grid_edge_size_counter
-
-        square_grid_edges[coordinate_id] = coordinate_value
-        grid_edge_size_counter += 1
-
-    """Add edges to inner nodes"""
-    grid_coordinates = []
-    square_grid_nodes = []
-    square_grid_edge_nodes = []
-
-    for square_grid_node in square_grid:
-        grid_coordinates.append(square_grid[f'{square_grid_node}'])
-        if 'c' in square_grid_node:
-            square_grid_edge_nodes.append(square_grid[f'{square_grid_node}'])
-        else:
-            square_grid_nodes.append(square_grid[f'{square_grid_node}'])
-
-    edge_combinations = []
-    for list_x in range(1, len(square_grid_list_original) - 1):
-        list_x_start = square_grid_list_original[list_x]
-        list_x_end = square_grid_list_original[list_x + 1]
-
-        for list_y in range(1, len(list_x_start) - 1):
-            if list_x_start[list_y] is not None and list_x_end[list_y] is not None:
-                edge_combinations.append([list_x_start[list_y], list_x_end[list_y]])
-                edge_combinations.append([list_x_end[list_y], list_x_start[list_y]])
-            if list_x_start[list_y] is not None and list_x_start[list_y + 1] is not None:
-                edge_combinations.append([list_x_start[list_y], list_x_start[list_y + 1]])
-                edge_combinations.append([list_x_start[list_y + 1], list_x_start[list_y]])
-
-    for grid_edge in edge_combinations:
-        edge_from = list(square_grid.keys())[list(square_grid.values()).index(grid_edge[0])]
-        edge_to = list(square_grid.keys())[list(square_grid.values()).index(grid_edge[1])]
-        update_square_grid_edges(coordinate_id=f'{grid_edge_size_counter}', coordinate_value=(edge_from, edge_to))
-
-    """Add connection edges to outer nodes"""
-    edge_connection_combinations = []
-    for list_x in range(0, len(square_grid_list) - 1):
-        list_x_start = square_grid_list[list_x]
-        list_x_end = square_grid_list[list_x + 1]
-        
-        for list_y in range(0, len(list_x_start) - 1):
-            if isinstance(list_x_start[list_y], list) or isinstance(list_x_end[list_y], list) or isinstance(list_x_start[list_y + 1], list):
-                list_x_start_list_y = list_x_start[list_y][1] if isinstance(list_x_start[list_y], list) else list_x_start[list_y]
-                list_x_end_list_y = list_x_end[list_y][0] if isinstance(list_x_end[list_y], list) else list_x_end[list_y]
-                list_x_start_list_y_1 = list_x_start[list_y + 1][1] if isinstance(list_x_start[list_y + 1], list) else list_x_start[list_y + 1]
-            else:
-                list_x_start_list_y = list_x_start[list_y]
-                list_x_end_list_y = list_x_end[list_y]
-                list_x_start_list_y_1 = list_x_start[list_y + 1]
-
-            if list_x_start_list_y not in square_grid_edge_nodes or list_x_end_list_y not in square_grid_edge_nodes:
-                if list_x_start_list_y is not None and list_x_end_list_y is not None:
-                    if list_x_start_list_y[0] == list_x_end_list_y[0] or list_x_start_list_y[1] == list_x_end_list_y[1]:
-                        edge_connection_combinations.append([list_x_start_list_y, list_x_end_list_y])
-                        edge_connection_combinations.append([list_x_end_list_y, list_x_start_list_y])
-
-            if list_x_start_list_y not in square_grid_edge_nodes or list_x_start_list_y_1 not in square_grid_edge_nodes:
-                if list_x_start_list_y is not None and list_x_start_list_y_1 is not None:
-                    if list_x_start_list_y[0] == list_x_start_list_y_1[0] or list_x_start_list_y[1] == list_x_start_list_y_1[1]:
-                        edge_connection_combinations.append([list_x_start_list_y, list_x_start_list_y_1])
-                        edge_connection_combinations.append([list_x_start_list_y_1, list_x_start_list_y])
-
-    edge_connections = [x for x in edge_connection_combinations if x not in edge_combinations]
-
-    for connection_edge in edge_connections:
-        edge_from = list(square_grid.keys())[list(square_grid.values()).index(connection_edge[0])]
-        edge_to = list(square_grid.keys())[list(square_grid.values()).index(connection_edge[1])]
-        update_square_grid_edges(coordinate_id=f'{grid_edge_size_counter}', coordinate_value=(edge_from, edge_to))
-
     """Create edg.xml file"""
-    for edge_element in range(len(square_grid_edges)):
-        edge_id = f'ce{edge_element + 1}' if 'c' in square_grid_edges[f'{edge_element + 1}'][0] or 'c' in square_grid_edges[f'{edge_element + 1}'][1] else f'e{edge_element + 1}'
-        edge_from = square_grid_edges[f'{edge_element + 1}'][0]
-        edge_to = square_grid_edges[f'{edge_element + 1}'][1]
+    for edge_id, (edge_from, edge_to) in road_edges.items():
+        # if edge_id in ['ce45']: continue
 
-        edgeChild = xml.createElement('edge')
-        edgeChild.setAttribute('id', edge_id)
-        edgeChild.setAttribute('from', edge_from)
-        edgeChild.setAttribute('to', edge_to)
-        edgeChild.setAttribute('numLanes', '4')
-        edgeChild.setAttribute('speed', '13.9')
+        edge_child = xml.createElement('edge')
+        edge_child.setAttribute('id', edge_id)
+        edge_child.setAttribute('from', edge_from)
+        edge_child.setAttribute('to', edge_to)
+        edge_child.setAttribute('numLanes', '4')
+        edge_child.setAttribute('speed', '13.9')
 
-        edges.appendChild(edgeChild)
+        edges.appendChild(edge_child)
 
-    xml_str = xml.toprettyxml(indent ="\t")
-
-    edge_file_path = os.path.join(model_path, f'Ingolstadt_{len(edge_combinations) // 2}_Edges.edg.xml')
+    xml_str = xml.toprettyxml(indent="\t")
+    edge_file_path = os.path.join(model_path, f'Ingolstadt_{len(road_edges) // 2}_Edges.edg.xml')
 
     with open(edge_file_path, "w") as f:
         f.write(xml_str)
-    
-    return square_grid_edges, edge_file_path
+
+    return edge_file_path
 
 
-def create_connection_xmlfile(model_path, square_grid, square_grid_edges):
+def create_connection_xml_file(model_path, road_connections, num_edges):
     xml = minidom.Document()
-
     connections = xml.createElement('connections')
     xml.appendChild(connections)
 
     def create_connection_child(edge_from, edge_to, lane_from, lane_to):
         nonlocal connections
 
-        connectionChild = xml.createElement('connection')
-        connectionChild.setAttribute('from', edge_from)
-        connectionChild.setAttribute('to', edge_to)
-        connectionChild.setAttribute('fromLane', lane_from)
-        connectionChild.setAttribute('toLane', lane_to)
-        connections.appendChild(connectionChild)
+        connection_child = xml.createElement('connection')
+        connection_child.setAttribute('from', edge_from)
+        connection_child.setAttribute('to', edge_to)
+        connection_child.setAttribute('fromLane', lane_from)
+        connection_child.setAttribute('toLane', lane_to)
+        connections.appendChild(connection_child)
 
     """Define lane specific connections for edges"""
-    square_grid_edges_list = list(square_grid_edges.values())
-
-    connection_combinations = []
-    
-    for list_x in range(1, len(square_grid_edges) + 1):
-        node_edge = square_grid_edges[f'{list_x}']
-        connection_edges = [x for x in square_grid_edges_list if x[0] == node_edge[1] and x[1] != node_edge[0]]
-
-        node_from_to = tuple(map(sub, square_grid[node_edge[1]], square_grid[node_edge[0]]))
-
-        if node_from_to[1] == 0:
-            node_direction = '+x' if node_from_to[0] == 1 or node_from_to[0] == 0.75 else '-x'
-        elif node_from_to[0] == 0:
-            node_direction = '+y' if node_from_to[1] == 1 or node_from_to[1] == 0.75 else '-y'
-
-        if connection_edges:
-            for edge in connection_edges:
-                edge_node_from = square_grid[edge[0]]
-                edge_node_to = square_grid[edge[1]]
-                edge_node_from_to = tuple(map(sub, edge_node_to, edge_node_from))
-
-                if ('x' in node_direction and edge_node_from_to[1] == 0) or ('y' in node_direction and edge_node_from_to[0] == 0):
-                    edge_direction = 's'
-                elif 'x' in node_direction and edge_node_from_to[0] == 0:
-                    if node_direction == '+x':
-                        edge_direction = 'l' if edge_node_from_to[1] == 1 or edge_node_from_to[1] == 0.75 else 'r'
-                    elif node_direction == '-x':
-                        edge_direction = 'r' if edge_node_from_to[1] == 1 or edge_node_from_to[1] == 0.75 else 'l'
-                elif 'y' in node_direction and edge_node_from_to[1] == 0:
-                    if node_direction == '+y':
-                        edge_direction = 'r' if edge_node_from_to[0] == 1 or edge_node_from_to[0] == 0.75 else 'l'
-                    elif node_direction == '-y':
-                        edge_direction = 'l' if edge_node_from_to[0] == 1 or edge_node_from_to[0] == 0.75 else 'r'
-
-                edge_from = f'ce{list_x}' if 'c' in node_edge[0] or 'c' in node_edge[1] else f'e{list_x}'
-                edge_id = list(square_grid_edges.keys())[list(square_grid_edges.values()).index(edge)]
-                edge_to = f'ce{edge_id}' if 'c' in edge[0] or 'c' in edge[1] else f'e{edge_id}'
-
-                connection_combinations.append({edge_from: [edge_to, edge_direction]})
-
-    connection_combination_dict = {}
-    for connection_combination in connection_combinations:
-        connection_combination_key = list(connection_combination.keys())[0]
-        connection_combination_direction = connection_combination[connection_combination_key][1]
-
-        if connection_combination_key not in connection_combination_dict:
-            connection_combination_dict[connection_combination_key] = [connection_combination_direction]
-        if connection_combination_direction not in connection_combination_dict[connection_combination_key]:
-            connection_combination_dict[connection_combination_key].append(connection_combination_direction)
-
-    """Create con.xml file"""
-    for connection_element in connection_combinations:
-        edge_from = list(connection_element.keys())[0]
-        edge_to = connection_element[edge_from][0]
-        edge_direction = connection_element[edge_from][1]
-
-        if edge_direction == 's':
+    for from_edge, to_edge, relative_direction in road_connections:
+        if relative_direction == RelativeDirection.STRAIGHT:
             for lane in range(0, 3):
-                create_connection_child(edge_from=edge_from, edge_to=edge_to, lane_from=f'{lane}', lane_to=f'{lane}')
+                create_connection_child(edge_from=from_edge, edge_to=to_edge, lane_from=f'{lane}', lane_to=f'{lane}')
         else:
-            lane_from_to = '0' if edge_direction == 'r' else '3'
-            create_connection_child(edge_from=edge_from, edge_to=edge_to, lane_from=lane_from_to, lane_to=lane_from_to)
+            lane_from_to = '0' if relative_direction == RelativeDirection.RIGHT else '3'
+            create_connection_child(edge_from=from_edge, edge_to=to_edge, lane_from=lane_from_to, lane_to=lane_from_to)
 
-    xml_str = xml.toprettyxml(indent ="\t")
-
-    connection_file_path = os.path.join(model_path, f'Ingolstadt_{len(square_grid_edges)}_Connections.con.xml')
+    xml_str = xml.toprettyxml(indent="\t")
+    connection_file_path = os.path.join(model_path, f'Ingolstadt_{num_edges}_Connections.con.xml')
 
     with open(connection_file_path, "w") as f:
         f.write(xml_str)
-    
+
     return connection_file_path
 
 
-def create_tllogic_xmlfile(model_path, square_grid):
+def create_tl_logic_xml_file(model_path, grid_nodes):
     xml = minidom.Document()
+    tl_logics = xml.createElement('tlLogics')
+    xml.appendChild(tl_logics)
 
-    tllogics = xml.createElement('tlLogics')
-    xml.appendChild(tllogics)
-
-    square_grid_nodes_list = [x for x in list(square_grid.keys()) if 'c' not in x]
+    junction_nodes = [node for node in grid_nodes.keys() if is_junction_node(node)]
 
     phase_xml_states = [
         'GGGGrrrrrrGGGGrrrrrr', 'yyyyrrrrrryyyyrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
@@ -408,54 +285,56 @@ def create_tllogic_xmlfile(model_path, square_grid):
     ]
 
     """Create tll.xml file"""
-    for tllogic_element in square_grid_nodes_list:
-        tllogic_id = f'TL{tllogic_element}'
+    for node in junction_nodes:
+        tl_logic_id = f'TL{node}'
 
-        tlLogicChild = xml.createElement('tlLogic')
-        tlLogicChild.setAttribute('id', tllogic_id)
-        tlLogicChild.setAttribute('type', 'static')
-        tlLogicChild.setAttribute('programID', '0')
-        tlLogicChild.setAttribute('offset', '0')
+        tl_logic_child = xml.createElement('tlLogic')
+        tl_logic_child.setAttribute('id', tl_logic_id)
+        tl_logic_child.setAttribute('type', 'static')
+        tl_logic_child.setAttribute('programID', '0')
+        tl_logic_child.setAttribute('offset', '0')
 
         for phase_element in phase_xml_states:
-            phaseChild = xml.createElement('phase')
-            phaseChild.setAttribute('duration', '100')
-            phaseChild.setAttribute('state', phase_element)
-            tlLogicChild.appendChild(phaseChild)
+            phase_child = xml.createElement('phase')
+            phase_child.setAttribute('duration', '100')
+            phase_child.setAttribute('state', phase_element)
+            tl_logic_child.appendChild(phase_child)
 
-        tllogics.appendChild(tlLogicChild)
+        tl_logics.appendChild(tl_logic_child)
 
-    xml_str = xml.toprettyxml(indent ="\t")
+    xml_str = xml.toprettyxml(indent="\t")
 
-    tllogic_file_path = os.path.join(model_path, f'Ingolstadt_{len(square_grid_nodes_list)}_TrafficLights.tll.xml')
+    tl_logic_file_path = os.path.join(model_path, f'Ingolstadt_{len(junction_nodes)}_TrafficLights.tll.xml')
 
-    with open(tllogic_file_path, "w") as f:
+    with open(tl_logic_file_path, "w") as f:
         f.write(xml_str)
-    
-    return tllogic_file_path
+
+    return tl_logic_file_path
 
 
-def create_env_xmlfile(model_path, node_files, edge_files, connection_files, tllogic_files):
-    env_file = os.path.join(model_path, 'environment.net.xml')
+def create_env_xml_file(model_path, node_file, edge_file, connection_file, tl_logic_file):
+    env_file_path = os.path.join(model_path, 'environment.net.xml')
+    os.system(
+        f'netconvert --node-files={node_file} --edge-files={edge_file} --connection-files={connection_file} '
+        f'--tllogic-files={tl_logic_file} -o {env_file_path}'
+    )
+    return env_file_path
 
-    os.system(f'netconvert --node-files={node_files} --edge-files={edge_files} --connection-files={connection_files} --tllogic-files={tllogic_files} -o {env_file}')
 
-
-def create_modular_road_network(models_path_name, number_nodes, length_edges=100):
+def create_modular_road_network(models_path_name, num_nodes, edge_length=100):
     model_path, model_id = create_intersection_path(models_path_name)
 
-    # files = glob.glob('intersection/*')
-    # for f in files:
-    #     if f[-1]=="l" and f[-5]!="u":
-    #         os.remove(f)
+    grid_nodes, road_edges, road_connections = create_road_network_topology(num_nodes)
 
-    square_grid, square_grid_list, square_grid_list_original, node_file = create_node_xmlfile(model_path=model_path, num_nodes=number_nodes, len_edges=length_edges)
-    square_grid_edges, edge_file = create_edge_xmlfile(model_path=model_path, square_grid=square_grid, square_grid_list=square_grid_list, square_grid_list_original=square_grid_list_original)
-    connection_file = create_connection_xmlfile(model_path=model_path, square_grid=square_grid, square_grid_edges=square_grid_edges)
-    tllogic_file = create_tllogic_xmlfile(model_path=model_path, square_grid=square_grid)
-    create_env_xmlfile(model_path=model_path, node_files=node_file, edge_files=edge_file, connection_files=connection_file, tllogic_files=tllogic_file)
+    node_file = create_node_xml_file(model_path, grid_nodes, num_nodes, edge_length)
+    edge_file = create_edge_xml_file(model_path, road_edges)
+    connection_file = create_connection_xml_file(model_path, road_connections, len(road_edges))
+    tl_logic_file = create_tl_logic_xml_file(model_path, grid_nodes)
 
-    copy('intersection/sumo_config.sumocfg', os.path.join(model_path, 'sumo_config.sumocfg'))
+    create_env_xml_file(model_path, node_file, edge_file, connection_file, tl_logic_file)
+
+    sumo_file = config['sumocfg_file_name']
+    copy(f'intersection/{sumo_file}', os.path.join(model_path, sumo_file))
 
     return model_path, model_id
 
