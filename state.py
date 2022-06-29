@@ -85,9 +85,11 @@ class JunctionObserver:
         self.reward_definition = reward_definition
         self.reward_aggregation = reward_aggregation
 
+        # Needed for KIVI simulation, but not currently used
         self.action = 1
         self.program = 0
         self.num_programs = 0
+        ###
 
         self.states = []
         self.reward = 0
@@ -119,6 +121,10 @@ class JunctionObserver:
         elif self.state_representation == "waiting_t":
             for lane in self.incoming_lanes:
                 state.append(traci.lane.getWaitingTime(lane))
+
+        elif self.state_representation == "Staulänge":
+            # Queue length
+            pass
 
         return state
 
