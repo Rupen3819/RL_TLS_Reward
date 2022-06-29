@@ -1,6 +1,7 @@
 import datetime
 import os
 import sys
+from enum import Enum
 
 import pandas as pd
 
@@ -79,5 +80,23 @@ def add_master_data(path, config, scores, training_time, wait, queue):
 
     master_df.to_excel(MASTER_DATA_FILE, index=False)
 
+class Direction(Enum):
+    NORTH = 0
+    EAST = 1
+    SOUTH = 2
+    WEST = 3
 
+    def opposite(self):
+        return Direction((self.value + 2) % 4)
+
+    def relative(self, next_direction):
+        relative_directions = [RelativeDirection.LEFT, RelativeDirection.STRAIGHT, RelativeDirection.RIGHT]
+        relative_direction_index = ((self.value - next_direction.value) % 4) - 1
+        return relative_directions[relative_direction_index]
+
+
+class RelativeDirection(Enum):
+    LEFT = 0
+    STRAIGHT = 1
+    RIGHT = 2
 

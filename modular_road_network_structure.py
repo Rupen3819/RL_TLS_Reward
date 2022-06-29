@@ -1,32 +1,10 @@
 import math
 import os
-from enum import Enum
 from shutil import copy
 from xml.dom import minidom
 
 from settings import config
-from utils import create_intersection_path
-
-
-class Direction(Enum):
-    NORTH = 0
-    EAST = 1
-    SOUTH = 2
-    WEST = 3
-
-    def opposite(self):
-        return Direction((self.value + 2) % 4)
-
-    def relative(self, next_direction):
-        relative_directions = [RelativeDirection.LEFT, RelativeDirection.STRAIGHT, RelativeDirection.RIGHT]
-        relative_direction_index = ((self.value - next_direction.value) % 4) - 1
-        return relative_directions[relative_direction_index]
-
-
-class RelativeDirection(Enum):
-    LEFT = 0
-    STRAIGHT = 1
-    RIGHT = 2
+from utils import create_intersection_path, Direction, RelativeDirection
 
 
 def is_junction_node(node_name):
