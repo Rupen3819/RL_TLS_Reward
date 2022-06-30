@@ -9,7 +9,7 @@ from gym.spaces import Discrete
 from sumolib import checkBinary
 
 from stats.junction import JunctionStatistics, TL_list
-from generator import ModularTrafficGenerator
+from traffic_generation import ModularTrafficGenerator
 from modular_road_network_structure import create_modular_road_network
 from settings import config
 from state import JunctionManager
@@ -73,7 +73,7 @@ class SUMO(Env):
         self.reward = 0
 
     def generate_traffic(self, seed=random.randint(0, 100)):
-        self._traffic_generator.generate_routefile(model_path=self.model_path, model_id=self.model_id, seed=seed)
+        self._traffic_generator.generate_route_file(model_path=self.model_path, seed=seed)
 
     def _fixed_action_generator(self, actions):
         for tl_id in actions:
