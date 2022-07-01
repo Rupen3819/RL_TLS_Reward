@@ -25,14 +25,15 @@ class DQNAgent:
         ======
             state_size (int): dimension of each state
             action_size (int): dimension of each action
+            hidden_dim: (tuple): dimensions of hidden layers
             fixed_action_space (bool): whether action space is linear (8) or exponential (8^n)
             traffic_lights (dict): traffic light ids from the SUMO environment
             buffer_size (int): replay buffer size
             batch_size (int): minibatch size
-            gamma = 0.99 (float): discount factor
-            tau = 1e-3 (float): for soft update of target parameters
-            learning_rate = 5e-4 (float): learning rate
-            update_interval = 4 (int): how often to update the network
+            gamma (float): discount factor
+            tau(float): for soft update of target parameters
+            learning_rate (float): learning rate
+            update_interval (int): how often to update the network
         """
         self.state_size = state_size
         if fixed_action_space:
@@ -180,11 +181,11 @@ class DQNAgent:
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def save_models(self, path):
-        print('... saving models ...')
+        print('... saving model ...')
         self.local_q_network.save_checkpoint(path)
-        print('... models saved successfully ...')
+        print('... model saved successfully ...')
 
     def load_models(self, path):
-        print('... loading models ...')
+        print('... loading model ...')
         self.local_q_network.load_checkpoint(path)
-        print('... models loaded successfully ...')
+        print('... model loaded successfully ...')
