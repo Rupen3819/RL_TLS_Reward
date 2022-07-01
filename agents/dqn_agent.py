@@ -8,20 +8,17 @@ import torch.optim as optim
 from model import Net
 from agents.memory import SequentialMemory
 
-#BUFFER_SIZE = int(1e5)  # replay buffer size
-#BATCH_SIZE = 64         # minibatch size
-#GAMMA = 0.99            # discount factor
-#TAU = 1e-3              # for soft update of target parameters
-#LR = 5e-4               # learning rate 
-#UPDATE_EVERY = 4        # how often to update the network
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class DQNAgent:
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, hidden_dim, fixed_action_space, TL_list, BUFFER_SIZE, BATCH_SIZE, GAMMA, TAU, LR, UPDATE_EVERY):
+    def __init__(
+        self, state_size: int, action_size: int, hidden_dim: tuple[int, ...], fixed_action_space: bool,
+        traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
+        tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4
+    ):
         """Initialize a DQN Agent object.
 
         Params
@@ -29,44 +26,53 @@ class DQNAgent:
             state_size (int): dimension of each state
             action_size (int): dimension of each action
             fixed_action_space (bool): whether action space is linear (8) or exponential (8^n)
-            TL_list (dict): traffic light ids from the SUMO environment
+            traffic_lights (dict): traffic light ids from the SUMO environment
+            buffer_size (int): replay buffer size
+            batch_size (int): minibatch size
+            gamma = 0.99 (float): discount factor
+            tau = 1e-3 (float): for soft update of target parameters
+            learning_rate = 5e-4 (float): learning rate
+            update_interval = 4 (int): how often to update the network
         """
-        self.state_size = state_size + len(TL_list) if fixed_action_space else state_size
+        self.state_size = state_size
+        if fixed_action_space:
+            self.state_size += len(traffic_lights)
+
         self.action_size = action_size
         self.fixed_action_space = fixed_action_space
 
-        self.TL_list = TL_list
-        self.BUFFER_SIZE = BUFFER_SIZE
-        self.BATCH_SIZE = BATCH_SIZE
-        self.GAMMA = GAMMA
-        self.TAU = TAU
-        self.LR = LR
-        self.UPDATE_EVERY = UPDATE_EVERY
+        self.traffic_lights = traffic_lights
 
+        self.buffer_size = buffer_size
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.tau = tau
+        self.learning_rate = learning_rate
+        self.update_interval = update_interval
 
         # Q-Network
         print(hidden_dim)
-        hidden_dim.insert(0, self.state_size)
-        hidden_dim.append(self.action_size)
+        hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        self.qnetwork_local = Net(hidden_dim).to(device)
-        print(self.qnetwork_local)
-        self.qnetwork_target = Net(hidden_dim).to(device)
+        self.local_q_network = Net(hidden_dim).to(device)
+        self.target_q_network = Net(hidden_dim).to(device)
+        print(self.local_q_network)
 
-        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
+        self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
         # Replay memory
-        self.memory = SequentialMemory(self.BUFFER_SIZE, self.BATCH_SIZE)
+        self.memory = SequentialMemory(self.buffer_size, self.batch_size)
 
-        # Initialize time step (for updating every UPDATE_EVERY steps)
+        # Initialize time step (for updating every update_interval steps)
         self.t_step = 0
-    
+
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
-        reward = sum(list(reward.values()))
+        reward = sum(reward.values())
+
         if self.fixed_action_space:
-            for tl_index, tl_id in enumerate(self.TL_list):
-                one_hot = np.zeros(len(self.TL_list))
+            for tl_index, tl_id in enumerate(self.traffic_lights):
+                one_hot = np.zeros(len(self.traffic_lights))
                 np.put(one_hot, tl_index, 1)
                 state_one_hot = np.array(one_hot.tolist() + state)
                 next_state_one_hot = np.array(one_hot.tolist() + next_state)
@@ -75,16 +81,17 @@ class DQNAgent:
         else:
             self.memory.add(state, action, reward, next_state, done)
 
-        # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
-        if self.t_step == 0:
+        # Learn every update_interval time steps.
+        self.t_step += 1
+        if self.t_step % self.update_interval == 0:
             # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > self.BATCH_SIZE:
+            if len(self.memory) > self.batch_size:
                 experiences = self.memory.sample()
-                self.learn(experiences, self.GAMMA)
+                self.learn(experiences, self.gamma)
 
     def act(self, state, eps=0.):
-        """Returns actions for given state as per current policy.
+        """
+        Returns actions for given state as per current policy.
         
         Params
         ======
@@ -92,19 +99,19 @@ class DQNAgent:
             eps (float): epsilon, for epsilon-greedy action selection
         """
         if self.fixed_action_space:
-            action_dict = dict.fromkeys(self.TL_list, 0)
-            action_values_dict = dict.fromkeys(self.TL_list, 0)
+            action_dict = dict.fromkeys(self.traffic_lights, 0)
+            action_values_dict = dict.fromkeys(self.traffic_lights, 0)
 
-            for tl_index, tl_id in enumerate(self.TL_list):
-                one_hot = np.zeros(len(self.TL_list))
+            for tl_index, tl_id in enumerate(self.traffic_lights):
+                one_hot = np.zeros(len(self.traffic_lights))
                 np.put(one_hot, tl_index, 1)
                 state_one_hot = np.array(one_hot.tolist() + state.tolist())
                 state_one_hot = torch.from_numpy(state_one_hot).float().unsqueeze(0).to(device)
 
-                self.qnetwork_local.eval()
+                self.local_q_network.eval()
                 with torch.no_grad():
-                    action_values = self.qnetwork_local(state_one_hot)
-                self.qnetwork_local.train()
+                    action_values = self.local_q_network(state_one_hot)
+                self.local_q_network.train()
 
                 action_values_dict[tl_id] = action_values.tolist()
 
@@ -116,11 +123,10 @@ class DQNAgent:
             return action_values_dict, action_dict
         else:
             state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-            self.qnetwork_local.eval()
+            self.local_q_network.eval()
             with torch.no_grad():
-                action_values = self.qnetwork_local(state)
-                # print(action_values)
-            self.qnetwork_local.train()
+                action_values = self.local_q_network(state)
+            self.local_q_network.train()
 
             # Epsilon-greedy action selection
             if random.random() > eps:
@@ -128,8 +134,9 @@ class DQNAgent:
             else:
                 return action_values.tolist(), random.choice(np.arange(self.action_size))
 
-    def learn(self, experiences, gamma):
-        """Update value parameters using given batch of experience tuples.
+    def learn(self, experiences, gamma: float):
+        """
+        Update value parameters using given batch of experience tuples.
 
         Params
         ======
@@ -139,42 +146,45 @@ class DQNAgent:
         states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
-        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+        q_targets_next = self.target_q_network(next_states).detach().max(1)[0].unsqueeze(1)
 
         # Compute Q targets for current states
-        Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        q_targets = rewards + (gamma * q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
-        Q_expected = self.qnetwork_local(states).gather(1, actions)
+        q_expected = self.local_q_network(states).gather(1, actions)
 
         # Compute loss
-        loss = F.mse_loss(Q_expected, Q_targets)
+        loss = F.mse_loss(q_expected, q_targets)
 
         # Minimize the loss
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # ------------------- update target network ------------------- #
-        self.soft_update(self.qnetwork_local, self.qnetwork_target, self.TAU)                     
+        # Update target network
+        self.soft_update(self.tau)
 
-    def soft_update(self, local_model, target_model, tau):
-        """Soft update model parameters.
+    def soft_update(self, tau: float):
+        """
+        Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
 
         Params
         ======
-            local_model (PyTorch model): weights will be copied from
-            target_model (PyTorch model): weights will be copied to
-            tau (float): interpolation parameter 
+            tau (float): interpolation parameter
         """
-        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+
+        # Copy weights from local model to target model, using tau as interpolation factor
+        for target_param, local_param in zip(self.target_q_network.parameters(), self.local_q_network.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def save_models(self, path):
         print('... saving models ...')
-        self.qnetwork_local.save_checkpoint(path)
+        self.local_q_network.save_checkpoint(path)
+        print('... models saved successfully ...')
 
     def load_models(self, path):
         print('... loading models ...')
-        self.qnetwork_local.load_checkpoint(path)
+        self.local_q_network.load_checkpoint(path)
+        print('... models loaded successfully ...')
