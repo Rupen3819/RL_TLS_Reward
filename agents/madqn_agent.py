@@ -1,12 +1,13 @@
-import numpy as np
 import random
 
-from model import Net
-from agents.memory import MultiSequentialMemory
-
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+
+from agents.memory import MultiSequentialMemory
+from environment import get_intersection_name
+from model import Net
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -126,13 +127,13 @@ class MADQNAgent:
 
             self.local_q_networks[agent_id].train()
 
-            actions_values[f'TL{agent_id + 1}'] = action_values.tolist()
+            actions_values[get_intersection_name(agent_id)] = action_values.tolist()
 
             # Epsilon-greedy action selection
             if random.random() > eps:
-                actions[f'TL{agent_id + 1}'] = np.argmax(action_values.cpu().data.numpy())
+                actions[get_intersection_name(agent_id)] = np.argmax(action_values.cpu().data.numpy())
             else:
-                actions[f'TL{agent_id + 1}'] = random.choice(np.arange(self.action_size))
+                actions[get_intersection_name(agent_id)] = random.choice(np.arange(self.action_size))
 
         return actions_values, actions
 

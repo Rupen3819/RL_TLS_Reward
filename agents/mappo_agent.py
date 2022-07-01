@@ -1,13 +1,12 @@
-import numpy as np
-
 from collections import namedtuple
 
-from model import ActorNet, CriticNet
-
+import numpy as np
 import torch
 import torch as T
-import torch.nn.functional as F
 import torch.optim as optim
+
+from environment import get_intersection_name
+from model import ActorNet, CriticNet
 
 #BATCH_SIZE = 256        # minibatch size
 #N_EPOCHS = 10           # the optimizer’s number of epochs
@@ -153,7 +152,7 @@ class MAPPOAgent():
             action = dist.sample()
 
             probs[agent_id] = T.squeeze(dist.log_prob(action)).item()
-            actions[f'TL{agent_id + 1}'] = T.squeeze(action).item()
+            actions[get_intersection_name(agent_id)] = T.squeeze(action).item()
             values[agent_id] = T.squeeze(value).item()
 
         return actions, probs, values
