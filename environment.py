@@ -3,6 +3,7 @@ import random
 import sys
 from itertools import product
 
+import numpy as np
 import traci
 from gym import Env
 from gym.spaces import Discrete
@@ -39,15 +40,16 @@ class SUMO(Env):
             intersection_name = f'TL{i}'
             self.traffic_lights[intersection_name] = str(i)
 
-        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, config['sumocfg_file_name'], config['max_steps'])
+        self.num_intersections = config['num_intersections']
 
         if config['single_agent']:
             if config['fixed_action_space']:
                 self.action_space = Discrete(config['num_actions'])
             else:
                 self.single_action_space = Discrete(config['num_actions'])
-                self.action_space = Discrete(pow(config['num_actions'], config['num_intersections']))
-                self.action_space_combinations = list(product(list(range(0, self.single_action_space.n)), repeat=config['num_intersections']))
+                self.action_space = Discrete(pow(config['num_actions'], self.num_intersections))
+                # self.action_space_combinations = list(product(range(0, self.single_action_space.n), repeat=self.num_intersections))
         else:
             self.action_space = Discrete(config['num_actions'])
             self.num_agents = len(self.traffic_lights)
@@ -75,12 +77,32 @@ class SUMO(Env):
     def generate_traffic(self, seed=random.randint(0, 100)):
         self._traffic_generator.generate_route_file(model_path=self.model_path, seed=seed)
 
+    def _compute_action_combination(self, actions):
+        # The action combination can be viewed as converting the actions index (in base 10) to a number in base N,
+        # where N is the number of possible actions, and each digit of this result is then the action of a single
+        # intersection. This result must also be padded with leading zeros so that the number of digits is equal
+        # to the number of intersections.
+        base = self.single_action_space.n
+        num_digits = self.num_intersections
+
+        action_combination = []
+
+        while actions:
+            action_combination.append(actions % base)
+            actions //= base
+
+        while len(action_combination) < num_digits:
+            action_combination.append(0)
+
+        return list(reversed(action_combination))
+
     def _fixed_action_generator(self, actions):
         for tl_id in actions:
             yield self.old_actions[tl_id], actions[tl_id], tl_id
 
     def _multi_action_generator(self, actions):
-        action_combination = self.action_space_combinations[actions]
+        # action_combination = self.action_space_combinations[actions]
+        action_combination = self._compute_action_combination(actions)
 
         for tl_index, tl_id in enumerate(self.traffic_lights):
             yield self.old_actions[tl_id], action_combination[tl_index], tl_id
@@ -110,7 +132,6 @@ class SUMO(Env):
             self.old_actions[traffic_light_id] = new_action
 
         self._simulate(self.green_duration)
-
 
         # Removed because it slows training down
         # self.junction_stats.step()
@@ -150,21 +171,24 @@ class SUMO(Env):
 
             self.junction_manager.receive_states()
 
-    def _set_green_phase(self, action_number, tl_id):
+    @staticmethod
+    def _set_green_phase(action_number, tl_id):
         """
         Activate the correct green light combination in sumo
         """
         green_phase_code = action_number * 3  # Obtain the green phase code, based on the old action
         traci.trafficlight.setPhase(tl_id, green_phase_code)
 
-    def _set_yellow_phase(self, old_action, tl_id):
+    @staticmethod
+    def _set_yellow_phase(old_action, tl_id):
         """
         Activate the correct yellow light combination in sumo
         """
         yellow_phase_code = old_action * 3 + 1  # Obtain the yellow phase code, based on the old action
         traci.trafficlight.setPhase(tl_id, yellow_phase_code)
 
-    def _set_red_phase(self, old_action, tl_id):
+    @staticmethod
+    def _set_red_phase(old_action, tl_id):
         """
         Activate the correct red light combination in sumo
         """
@@ -172,7 +196,7 @@ class SUMO(Env):
         traci.trafficlight.setPhase(tl_id, red_phase_code)
 
     def reset(self):
-        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, self.model_id, config['sumocfg_file_name'], config['max_steps'])
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, config['sumocfg_file_name'], config['max_steps'])
 
         try:
             traci.start(self._sumo_cmd)
@@ -200,7 +224,7 @@ def import_sumo_tools():
         sys.exit("Please declare environment variable 'SUMO_HOME'")
 
 
-def configure_sumo(gui, model_path, model_id, sumocfg_file_name, max_steps):
+def configure_sumo(gui, model_path, sumocfg_file_name, max_steps):
     """
     Configure various parameters of SUMO.
     """
