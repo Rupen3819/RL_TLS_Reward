@@ -20,11 +20,11 @@ class MADQNAgent:
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4
     ):
-        """Initialize MADQN Agent objects.
+        """
+        Initialize MADQN Agent object.
 
         Params
         ======
-
             state_size (int): dimension of each state
             action_size (int): dimension of each action
             num_agents (int): number of agents in multi-agent implementation

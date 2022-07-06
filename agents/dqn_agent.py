@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import Net
-from agents.memory import SequentialMemory
+from agents.memory import ReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -62,7 +62,7 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
         # Replay memory
-        self.memory = SequentialMemory(self.buffer_size, self.batch_size)
+        self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0
@@ -72,13 +72,13 @@ class DQNAgent:
         reward = sum(reward.values())
 
         if self.fixed_action_space:
-            for tl_index, tl_id in enumerate(self.traffic_lights):
+            for index, traffic_light_id in enumerate(self.traffic_lights):
                 one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, tl_index, 1)
+                np.put(one_hot, index, 1)
                 state_one_hot = np.array(one_hot.tolist() + state)
                 next_state_one_hot = np.array(one_hot.tolist() + next_state)
 
-                self.memory.add(state_one_hot, action[tl_id], reward, next_state_one_hot, done)
+                self.memory.add(state_one_hot, action[traffic_light_id], reward, next_state_one_hot, done)
         else:
             self.memory.add(state, action, reward, next_state, done)
 
@@ -103,9 +103,9 @@ class DQNAgent:
             action_dict = dict.fromkeys(self.traffic_lights, 0)
             action_values_dict = dict.fromkeys(self.traffic_lights, 0)
 
-            for tl_index, tl_id in enumerate(self.traffic_lights):
+            for index, traffic_light_id in enumerate(self.traffic_lights):
                 one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, tl_index, 1)
+                np.put(one_hot, index, 1)
                 state_one_hot = np.array(one_hot.tolist() + state.tolist())
                 state_one_hot = torch.from_numpy(state_one_hot).float().unsqueeze(0).to(device)
 
@@ -114,13 +114,13 @@ class DQNAgent:
                     action_values = self.local_q_network(state_one_hot)
                 self.local_q_network.train()
 
-                action_values_dict[tl_id] = action_values.tolist()
+                action_values_dict[traffic_light_id] = action_values.tolist()
 
                 # Epsilon-greedy action selection
                 if random.random() > eps:
-                    action_dict[tl_id] = np.argmax(action_values.cpu().data.numpy())
+                    action_dict[traffic_light_id] = np.argmax(action_values.cpu().data.numpy())
                 else:
-                    action_dict[tl_id] = random.choice(np.arange(self.action_size))
+                    action_dict[traffic_light_id] = random.choice(np.arange(self.action_size))
             return action_values_dict, action_dict
         else:
             state = torch.from_numpy(state).float().unsqueeze(0).to(device)
@@ -151,6 +151,7 @@ class DQNAgent:
 
         # Compute Q targets for current states
         q_targets = rewards + (gamma * q_targets_next * (1 - dones))
+
 
         # Get expected Q values from local model
         q_expected = self.local_q_network(states).gather(1, actions)

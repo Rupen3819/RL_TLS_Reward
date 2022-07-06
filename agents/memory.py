@@ -33,7 +33,7 @@ class RingBuffer:
             raise RuntimeError()
 
 
-class SequentialMemory:
+class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
     Experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
