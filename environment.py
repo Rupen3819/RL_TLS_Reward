@@ -36,9 +36,8 @@ class SUMO(Env):
 
         self.traffic_lights = {}
 
-        for i in range(1, config['num_intersections'] + 1):
-            intersection_name = f'TL{i}'
-            self.traffic_lights[intersection_name] = str(i)
+        for i in range(config['num_intersections']):
+            self.traffic_lights[get_intersection_name(i)] = str(i + 1)
 
         self._sumo_cmd = configure_sumo(config['gui'], self.model_path, config['sumocfg_file_name'], config['max_steps'])
         self.num_intersections = config['num_intersections']
@@ -212,6 +211,9 @@ class SUMO(Env):
         # Implement visualization
         pass
 
+
+def get_intersection_name(intersection_index):
+    return f'TL{intersection_index + 1}'
 
 def import_sumo_tools():
     """
