@@ -1,3 +1,4 @@
+import math
 import random
 from collections import namedtuple
 
@@ -17,10 +18,28 @@ class RingBuffer:
     def __len__(self):
         return self.length
 
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= self.length:
+    def __getitem__(self, index):
+        if index < 0 or index >= self.length:
             raise IndexError('Buffer index out of range')
-        return self.data[(self.start + idx) % self.max_len]
+        return self.data[(self.start + index) % self.max_len]
+
+    def __setitem__(self, index, value):
+        if index < 0 or index >= self.length:
+            raise IndexError('Buffer index out of range')
+        self.data[(self.start + index) % self.max_len] = value
+
+    def __iter__(self):
+        if self.length == 0:
+            return
+
+        index = self.start
+        end_index = self.start
+
+        finished = False
+        while not finished:
+            yield self.data[index]
+            index = (index + 1) % self.length
+            finished = index == end_index
 
     def append(self, value):
         if self.length < self.max_len:
@@ -29,8 +48,6 @@ class RingBuffer:
         elif self.length == self.max_len:
             self.start = (self.start + 1) % self.max_len
             self.data[(self.start + self.length - 1) % self.max_len] = value
-        else:
-            raise RuntimeError()
 
 
 class ReplayBuffer:
@@ -72,6 +89,42 @@ class ReplayBuffer:
         dones = torch.from_numpy(np.vstack(done_list).astype(np.uint8)).float().to(device)
 
         return states, actions, rewards, next_states, dones
+
+
+class NStepReplayBuffer(ReplayBuffer):
+    def __init__(self, buffer_size, batch_size, n_step, gamma):
+        super().__init__(buffer_size, batch_size)
+        self.n_step = n_step
+        self.gamma = gamma
+        self.past_experiences = RingBuffer(max_len=n_step)
+
+    def add(self, state, action, reward, next_state, done):
+        experience = super().Experience(state, action, reward, next_state, done)
+
+        # Add the latest experience to the buffer, discarding the oldest experience if full
+        # (which will already have been processed)
+        self.past_experiences.append(experience)
+
+        if done:
+            # Process all remaining experiences in the buffer
+            for i in range(len(self.past_experiences)):
+                self._process_experience(i, next_state)
+        elif len(self.past_experiences) >= self.n_step:
+            # Process the oldest experience in the buffer
+            self._process_experience(0, next_state)
+
+    def _process_experience(self, experience_index, new_next_state):
+        total_reward = 0
+
+        # Compute total reward
+        for i in range(len(self.past_experiences) - experience_index):
+            past_experience = self.past_experiences[i + experience_index]
+            reward = past_experience.reward
+            total_reward += reward * math.pow(self.gamma, i)
+
+        # Store oldest experience in replay buffer, with its new N-step reward and new next state
+        (past_state, past_action, _, _, past_done) = self.past_experiences[experience_index]
+        super().add(past_state, past_action, total_reward, new_next_state, past_done)
 
 
 class MultiSequentialMemory:

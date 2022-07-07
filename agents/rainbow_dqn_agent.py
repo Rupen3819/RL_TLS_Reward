@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import Net
-from agents.memory import ReplayBuffer
+from agents.memory import ReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -18,7 +18,8 @@ class RainbowDQNAgent:
             self, state_size: int, action_size: int, hidden_dim: tuple[int, ...], fixed_action_space: bool,
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
-            double_q_learning: bool = True
+            double_q_learning: bool = True,
+            n_step_bootstrapping: int = 1
     ):
         """Initialize a DQN Agent object.
 
@@ -53,6 +54,7 @@ class RainbowDQNAgent:
         self.learning_rate = learning_rate
         self.update_interval = update_interval
         self.double_q_learning = double_q_learning
+        self.n_step_bootstrapping = n_step_bootstrapping
 
         # Q-Network
         print(hidden_dim)
@@ -65,7 +67,10 @@ class RainbowDQNAgent:
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
         # Replay memory
-        self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
+        if self.n_step_bootstrapping > 1:
+            self.memory = NStepReplayBuffer(self.buffer_size, self.batch_size, self.n_step_bootstrapping, self.gamma)
+        else:
+            self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0

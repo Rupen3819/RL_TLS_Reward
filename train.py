@@ -34,7 +34,7 @@ match agent_type:
         agent = RainbowDQNAgent(
             env.num_states, env.action_space.n, config['hidden_dim'], config['fixed_action_space'],
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
-            config['learning_rate'], config['target_update'], True
+            config['learning_rate'], config['target_update'], True, 1
         )
         scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
 
