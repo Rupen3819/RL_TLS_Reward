@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import Net
+from model import Net, NoisyNet
 from agents.memory import ReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -18,8 +18,7 @@ class RainbowDQNAgent:
             self, state_size: int, action_size: int, hidden_dim: tuple[int, ...], fixed_action_space: bool,
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
-            double_q_learning: bool = True,
-            n_step_bootstrapping: int = 1
+            double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True
     ):
         """Initialize a DQN Agent object.
 
@@ -53,15 +52,18 @@ class RainbowDQNAgent:
         self.tau = tau
         self.learning_rate = learning_rate
         self.update_interval = update_interval
+
         self.double_q_learning = double_q_learning
         self.n_step_bootstrapping = n_step_bootstrapping
+        self.noisy_net = noisy_net
 
         # Q-Network
         print(hidden_dim)
         hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        self.local_q_network = Net(hidden_dim).to(device)
-        self.target_q_network = Net(hidden_dim).to(device)
+        network_class = NoisyNet if self.noisy_net else Net
+        self.local_q_network = network_class(hidden_dim).to(device)
+        self.target_q_network = network_class(hidden_dim).to(device)
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
@@ -125,7 +127,7 @@ class RainbowDQNAgent:
                 action_values_dict[tl_id] = action_values.tolist()
 
                 # Epsilon-greedy action selection
-                if random.random() > eps:
+                if self.noisy_net or random.random() > eps:
                     action_dict[tl_id] = np.argmax(action_values.cpu().data.numpy())
                 else:
                     action_dict[tl_id] = random.choice(np.arange(self.action_size))
@@ -138,7 +140,7 @@ class RainbowDQNAgent:
             self.local_q_network.train()
 
             # Epsilon-greedy action selection
-            if random.random() > eps:
+            if self.noisy_net or random.random() > eps:
                 return action_values.tolist(), np.argmax(action_values.cpu().data.numpy())
             else:
                 return action_values.tolist(), random.choice(np.arange(self.action_size))
@@ -181,6 +183,10 @@ class RainbowDQNAgent:
         # Update target network
         self.soft_update(self.tau)
 
+        if self.noisy_net:
+            self.local_q_network.reset_noise()
+            self.target_q_network.reset_noise()
+
     def soft_update(self, tau: float):
         """
         Soft update model parameters.
@@ -190,7 +196,6 @@ class RainbowDQNAgent:
         ======
             tau (float): interpolation parameter
         """
-
         # Copy weights from local model to target model, using tau as interpolation factor
         for target_param, local_param in zip(self.target_q_network.parameters(), self.local_q_network.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
