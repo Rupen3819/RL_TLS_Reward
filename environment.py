@@ -1,19 +1,17 @@
 import os
 import random
 import sys
-from itertools import product
 
-import numpy as np
 import traci
 from gym import Env
 from gym.spaces import Discrete
 from sumolib import checkBinary
 
-from stats.junction import JunctionStatistics, TL_list
-from traffic_generation import ModularTrafficGenerator
 from modular_road_network_structure import create_modular_road_network
 from settings import config
 from state import JunctionManager
+from stats.junction import JunctionStatistics, TL_list
+from traffic_generation import ModularTrafficGenerator
 
 
 class SUMO(Env):
