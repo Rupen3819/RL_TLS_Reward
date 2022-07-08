@@ -1,14 +1,10 @@
 import numpy as np
-
-import random
-from collections import namedtuple, deque
-
-from model import ActorNet, CriticNet
-from random_process import OrnsteinUhlenbeckProcess
-
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
+
+from agents.memory import ReplayBuffer
+from deprecated.random_process import OrnsteinUhlenbeckProcess
+from model import WolpActorNet, WolpCriticNet
 
 #BUFFER_SIZE = int(1e5)  # replay buffer size
 #BATCH_SIZE = 64         # minibatch size
@@ -62,15 +58,15 @@ class DDPGAgent():
         critic_dim.insert(0, self.state_size)
         critic_dim.append(1)
 
-        self.actor_local = ActorNet(actor_dim, 'wolp', self.actor_init_w).to(device)
+        self.actor_local = WolpActorNet(actor_dim, self.actor_init_w).to(device)
         print(self.actor_local)
-        self.actor_target = ActorNet(actor_dim, 'wolp', self.actor_init_w).to(device)
+        self.actor_target = WolpActorNet(actor_dim, self.actor_init_w).to(device)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=P_LR, weight_decay=WEIGHT_DECAY)
         # self.actor_optimizer = optim.RAdam(self.actor_local.parameters(), lr=P_LR, weight_decay=WEIGHT_DECAY)
 
-        self.critic_local = CriticNet(critic_dim, 'wolp', self.critic_init_w).to(device)
+        self.critic_local = WolpCriticNet(critic_dim, 'wolp', self.critic_init_w).to(device)
         print(self.critic_local)
-        self.critic_target = CriticNet(critic_dim, 'wolp', self.critic_init_w).to(device)
+        self.critic_target = WolpCriticNet(critic_dim, 'wolp', self.critic_init_w).to(device)
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=V_LR, weight_decay=WEIGHT_DECAY)
         # self.critic_optimizer = optim.RAdam(self.critic_local.parameters(), lr=V_LR, weight_decay=WEIGHT_DECAY)
 
@@ -78,7 +74,7 @@ class DDPGAgent():
         self.hard_update(self.critic_local, self.critic_target)
 
         # Replay memory
-        self.memory = SequentialMemory(self.BUFFER_SIZE, self.BATCH_SIZE)
+        self.memory = ReplayBuffer(self.BUFFER_SIZE, self.BATCH_SIZE)
         self.random_process = OrnsteinUhlenbeckProcess(size=self.action_dim, theta=OU_THETA, mu=OU_MU, sigma=OU_SIGMA)
 
         # Initialize time step (for start learning policy and updating every UPDATE_EVERY steps)
@@ -157,70 +153,3 @@ class DDPGAgent():
         print('... loading models ...')
         self.actor_local.load_checkpoint(path)
         self.critic_local.load_checkpoint(path)
-
-
-
-class RingBuffer:
-    def __init__(self, maxlen):
-        self.maxlen = maxlen
-        self.start = 0
-        self.length = 0
-        self.data = []
-
-    def __len__(self):
-        return self.length
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= self.length:
-            raise KeyError()
-        return self.data[(self.start + idx) % self.maxlen]
-
-    def append(self, v):
-        if self.length < self.maxlen:
-            self.length += 1
-            self.data.append(v)
-        elif self.length == self.maxlen:
-            self.start = (self.start + 1) % self.maxlen
-            self.data[(self.start + self.length - 1) % self.maxlen] = v
-        else:
-            raise RuntimeError()
-
-
-class SequentialMemory:
-    """Fixed-size buffer to store experience tuples."""
-    def __init__(self, buffer_size, batch_size):
-        """Initialize a SequentialMemory object.
-
-        Params
-        ======
-            buffer_size (int): maximum size of buffer
-            batch_size (int): size of each training batch
-        """
-        # Do not use deque to implement the memory. This data structure may seem convenient but
-        # it is way too slow on random access. Instead, we use our own ring buffer implementation.
-        self.memory = RingBuffer(buffer_size)
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-
-        self.batch_size = batch_size
-
-    def add(self, state, action, reward, next_state, done):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done)
-        
-        self.memory.append(e)
-
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory.data, k=self.batch_size)
-
-        states = np.array([e.state for e in experiences])
-        actions = np.array([e.action for e in experiences])
-        rewards = np.array([e.reward for e in experiences])
-        next_states = np.array([e.next_state for e in experiences])
-        dones = np.array([e.done for e in experiences])
-
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self):
-        """Return the current size of internal memory."""
-        return len(self.memory.data)

@@ -7,7 +7,7 @@ import torch.optim as optim
 
 from agents.memory import MultiSequentialMemory
 from environment import get_intersection_name
-from model import Net
+from model import QNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -61,8 +61,8 @@ class MADQNAgent:
         print(hidden_dim)
         hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        self.local_q_networks = [Net(hidden_dim).to(device) for _ in range(self.num_agents)]
-        self.target_q_networks = [Net(hidden_dim).to(device) for _ in range(self.num_agents)]
+        self.local_q_networks = [QNet('madqn', hidden_dim).to(device) for _ in range(self.num_agents)]
+        self.target_q_networks = [QNet('madqn', hidden_dim).to(device) for _ in range(self.num_agents)]
         print(self.local_q_networks)
 
         self.optimizers = [optim.Adam(net.parameters(), lr=learning_rate) for net in self.local_q_networks]

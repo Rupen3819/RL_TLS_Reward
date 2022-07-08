@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import Net, NoisyNet
+from model import QNet, NoisyQNet
 from agents.memory import ReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -61,7 +61,7 @@ class RainbowDQNAgent:
         print(hidden_dim)
         hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        network_class = NoisyNet if self.noisy_net else Net
+        network_class = NoisyQNet if self.noisy_net else QNet
         self.local_q_network = network_class(hidden_dim).to(device)
         self.target_q_network = network_class(hidden_dim).to(device)
         print(self.local_q_network)

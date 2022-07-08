@@ -3,7 +3,7 @@ import torch
 import torch.optim as optim
 
 from agents.memory import PPOMemory
-from model import ActorNet, CriticNet
+from model import PpoActorNet, PpoCriticNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -54,12 +54,12 @@ class PPOAgent:
 
         print(actor_dim)
         actor_dim = (self.state_size, actor_dim[0], actor_dim[1], self.action_size)
-        self.actor = ActorNet(actor_dim, 'ppo').to(device)
+        self.actor = PpoActorNet('ppo', actor_dim).to(device)
         print(self.actor)
 
         print(critic_dim)
         critic_dim = (self.state_size, critic_dim[0], critic_dim[1], 1)
-        self.critic = CriticNet(critic_dim, 'ppo').to(device)
+        self.critic = PpoCriticNet('ppo', critic_dim).to(device)
         print(self.critic)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=policy_learning_rate)

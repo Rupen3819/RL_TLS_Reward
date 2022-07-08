@@ -6,7 +6,7 @@ import torch as T
 import torch.optim as optim
 
 from environment import get_intersection_name
-from model import ActorNet, CriticNet
+from model import PpoActorNet, PpoCriticNet
 
 #BATCH_SIZE = 256        # minibatch size
 #N_EPOCHS = 10           # the optimizer’s number of epochs
@@ -82,16 +82,16 @@ class MAPPOAgent():
         critic_dim.insert(0, self.state_size)
         critic_dim.append(1)
 
-        self.actors = [ActorNet(actor_dim, 'mappo').to(device)] * self.num_agents
+        self.actors = [PpoActorNet('mappo', actor_dim).to(device)] * self.num_agents
         print(self.actors)
         if self.training_strategy == 'nonstrategic':
-            self.critics = [CriticNet(critic_dim, 'mappo').to(device)] * self.num_agents
+            self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
         elif self.training_strategy == 'concurrent':
-            self.critics = [CriticNet(critic_dim, 'mappo').to(device)] * self.num_agents
+            self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
         elif self.training_strategy == 'centralized':
             critic_state_dim = self.state_size * self.num_agents
             critic_dim[0] = critic_state_dim
-            self.critics = [CriticNet(critic_dim, 'mappo').to(device)] * self.num_agents
+            self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
         print(self.critics)
 
         self.actor_optimizers = [optim.Adam(a.parameters(), lr=P_LR) for a in self.actors]

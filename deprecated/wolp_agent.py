@@ -1,7 +1,7 @@
 import numpy as np
 
-from ddpg_agent import DDPGAgent
-import action_space
+from deprecated.ddpg_agent import DDPGAgent
+import deprecated.action_space as action_space
 
 import torch
 import torch.nn.functional as F

@@ -71,8 +71,33 @@ class NoisyLinear(nn.Module):
 
 
 class AbstractNet(nn.Module):
-    def __init__(self, layer_class: Type, net_structure: tuple[int, ...]):
+    def __init__(self, network_type, algorithm_name):
         super().__init__()
+        self.network_type = network_type
+        self.algorithm_name = algorithm_name
+
+    def save_checkpoint(self, path, index=None):
+        model_path = self._get_model_path(path, index)
+        torch.save(self.state_dict(), model_path)
+
+    def load_checkpoint(self, path, index=None):
+        model_path = self._get_model_path(path, index)
+        self.load_state_dict(torch.load(model_path, map_location=device))
+
+    def _get_model_path(self, path, index):
+        model_name = f'{self.network_type}_torch_{self.algorithm_name}_{index}.pth'
+
+        if index is not None:
+            model_name += f'_{index}'
+
+        model_name += '.pth'
+
+        return os.path.join(path, model_name)
+
+
+class ReluNet(AbstractNet):
+    def __init__(self, network_type: str, algorithm_name: str, layer_class: Type, net_structure: tuple[int, ...]):
+        super().__init__(network_type, algorithm_name)
         self.layers = nn.ModuleList([
             layer_class(net_structure[layer], net_structure[layer + 1])
             for layer in range(len(net_structure) - 1)
@@ -84,124 +109,89 @@ class AbstractNet(nn.Module):
         out = self.layers[-1](x)
         return out
 
-    def save_checkpoint(self, path, index=None):
-        model_path = os.path.join(path, f'qnetwork_torch_madqn_{index}.pth' if index is not None else 'qnetwork_torch_dqn.pth')
-        torch.save(self.state_dict(), model_path)
 
-    def load_checkpoint(self, path, index=None):
-        model_path = os.path.join(path, f'qnetwork_torch_madqn_{index}.pth' if index is not None else 'qnetwork_torch_dqn.pth')
-        self.load_state_dict(torch.load(model_path, map_location=device))
+class QNet(ReluNet):
+    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
+        super().__init__('q_network', algorithm_name, nn.Linear, net_structure)
 
 
-class Net(AbstractNet):
-    def __init__(self, net_structure: tuple[int, ...]):
-        super().__init__(nn.Linear, net_structure)
-
-
-class NoisyNet(AbstractNet):
-    def __init__(self, net_structure: tuple[int, ...]):
-        super().__init__(NoisyLinear, net_structure)
+class NoisyQNet(ReluNet):
+    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
+        super().__init__('noisy_q_network', algorithm_name, NoisyLinear, net_structure)
 
     def reset_noise(self):
-        for layer in self.layers:
-            layer.reset_noise()
+        for noisy_layer in self.layers:
+            noisy_layer.reset_noise()
 
 
-def fan_in_init(size, fan_in=None):
-    fan_in = fan_in or size[0]
-    v = 1. / np.sqrt(fan_in)
-    return torch.Tensor(size).uniform_(-v, v)
+class PpoActorNet(ReluNet):
+    def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
+        super().__init__('actor', algorithm_name, nn.Linear, net_structure)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = super().forward(x)
+        out = F.softmax(x, dim=-1)
+        dist = Categorical(out)
+        return dist
 
 
-class ActorNet(nn.Module):
-    def __init__(self, net_structure: tuple[int, ...], algorithm, init_w=None):
-        super().__init__()
-        self.algorithm = algorithm
+class PpoCriticNet(ReluNet):
+    def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
+        super().__init__('critic', algorithm_name, nn.Linear, net_structure)
 
-        if 'ppo' in self.algorithm:
-            self.layers = nn.ModuleList([
-                nn.Linear(net_structure[layer], net_structure[layer + 1])
-                for layer in range(len(net_structure) - 1)
-            ])
-        elif self.algorithm == 'wolp':
-            self.layers = nn.ModuleList([
-                nn.Linear(net_structure[layer], net_structure[layer + 1])
-                for layer in range(len(net_structure) - 1)
-            ])
 
-            self.init_weights(init_w)
+class AbstractWolpNet(AbstractNet):
+    def __init__(self, network_type):
+        super().__init__(network_type, 'wolp')
 
     def init_weights(self, init_w):
         for layer in self.layers[:-1]:
-            layer.weight.data = fan_in_init(layer.weight.data.size())
+            layer.weight.data = self.fan_in_init(layer.weight.data.size())
         self.layers[-1].weight.data.uniform_(-init_w, init_w)
+
+    def fan_in_init(size, fan_in=None):
+        fan_in = fan_in or size[0]
+        v = 1. / np.sqrt(fan_in)
+        return torch.Tensor(size).uniform_(-v, v)
+
+
+class WolpActorNet(AbstractWolpNet):
+    def __init__(self, net_structure: tuple[int, ...], init_w=None):
+        super().__init__('actor')
+        self.layers = nn.ModuleList([
+            nn.Linear(net_structure[layer], net_structure[layer + 1])
+            for layer in range(len(net_structure) - 1)
+        ])
+
+        self.init_weights(init_w)
 
     def clip_gradients(self, clip_val):
         for param in self.parameters():
             param.register_hook(lambda grad: grad.clamp_(-clip_val, clip_val))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if 'ppo' in self.algorithm:
-            for layer in self.layers[:-1]:
-                x = F.relu(layer(x))
-            x = self.layers[-1](x)
-            out = F.softmax(x, dim=-1)
-            dist = Categorical(out)
-            return dist
-        elif self.algorithm == 'wolp':
-            for layer in self.layers[:-1]:
-                x = F.relu(layer(x))
-            out = torch.tanh(self.layers[-1](x))
-            return out
-
-    def save_checkpoint(self, path, index=None):
-        torch.save(self.state_dict(), os.path.join(path, f'actor_torch_{self.algorithm}_{index}.pth' if index is not None else f'actor_torch_{self.algorithm}.pth'))
-
-    def load_checkpoint(self, path, index=None):
-        self.load_state_dict(torch.load(os.path.join(path, f'actor_torch_{self.algorithm}_{index}.pth' if index is not None else f'actor_torch_{self.algorithm}.pth'), map_location=device))
-
-
-class CriticNet(nn.Module):
-    def __init__(self, net_structure: tuple[int, ...], algorithm, init_w=None, action_dim=1):
-        super().__init__()
-        self.algorithm = algorithm
-
-        if 'ppo' in self.algorithm:
-            self.layers = nn.ModuleList([
-                nn.Linear(net_structure[layer], net_structure[layer + 1])
-                for layer in range(len(net_structure) - 1)
-            ])
-        elif self.algorithm == 'wolp':
-            self.layers = nn.ModuleList([
-                nn.Linear(net_structure[layer] + (action_dim * layer == 1), net_structure[layer + 1])
-                for layer in range(len(net_structure) - 1)
-            ])
-            self.init_weights(init_w)
-
-    def init_weights(self, init_w):
         for layer in self.layers[:-1]:
-            layer.weight.data = fan_in_init(layer.weight.data.size())
-        self.layers[-1].weight.data.uniform_(-init_w, init_w)
+            x = F.relu(layer(x))
+        out = torch.tanh(self.layers[-1](x))
+        return out
+
+
+class WolpCriticNet(AbstractWolpNet):
+    def __init__(self, net_structure: tuple[int, ...], init_w=None, action_dim=1):
+        super().__init__('critic')
+
+        self.layers = nn.ModuleList([
+            nn.Linear(net_structure[layer] + (action_dim * layer == 1), net_structure[layer + 1])
+            for layer in range(len(net_structure) - 1)
+        ])
+        self.init_weights(init_w)
 
     def forward(self, xs) -> torch.Tensor:
-        if 'ppo' in self.algorithm:
-            x = xs
-            for layer in self.layers[:-1]:
+        x, a = xs
+        for layer in self.layers[:-1]:
+            if layer == self.layers[1]:
+                x = F.relu(layer(torch.cat([x, a], len(a.shape) - 1)))
+            else:
                 x = F.relu(layer(x))
-            out = self.layers[-1](x)
-            return out
-        elif self.algorithm == 'wolp':
-            x, a = xs
-            for layer in self.layers[:-1]:
-                if layer == self.layers[1]:
-                    x = F.relu(layer(torch.cat([x, a], len(a.shape) - 1)))
-                else:
-                    x = F.relu(layer(x))
-            out = self.layers[-1](x)
-            return out
-
-    def save_checkpoint(self, path, index=None):
-        torch.save(self.state_dict(), os.path.join(path, f'critic_torch_{self.algorithm}_{index}.pth' if index is not None else f'critic_torch_{self.algorithm}.pth'))
-
-    def load_checkpoint(self, path, index=None):
-        self.load_state_dict(torch.load(os.path.join(path, f'critic_torch_{self.algorithm}_{index}.pth' if index is not None else f'critic_torch_{self.algorithm}.pth'), map_location=device))
+        out = self.layers[-1](x)
+        return out

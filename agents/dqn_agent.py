@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import Net
+from model import QNet
 from agents.memory import ReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -55,8 +55,8 @@ class DQNAgent:
         print(hidden_dim)
         hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        self.local_q_network = Net(hidden_dim).to(device)
-        self.target_q_network = Net(hidden_dim).to(device)
+        self.local_q_network = QNet('dqn', hidden_dim).to(device)
+        self.target_q_network = QNet('dqn', hidden_dim).to(device)
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
