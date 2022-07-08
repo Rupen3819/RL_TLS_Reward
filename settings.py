@@ -5,6 +5,7 @@ import sys
 import configparser
 import argparse
 
+
 _settings = {
         'simulation': {
             'gui': 'bool',
