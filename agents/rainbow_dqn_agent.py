@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import QNet, NoisyQNet
+from model import QNet, NoisyQNet, DuelingQNet, DuelingNoisyQNet
 from agents.memory import ReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -18,7 +18,8 @@ class RainbowDQNAgent:
             self, state_size: int, action_size: int, hidden_dim: tuple[int, ...], fixed_action_space: bool,
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
-            double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True
+            double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True,
+            dueling_net: bool = True
     ):
         """Initialize a DQN Agent object.
 
@@ -56,14 +57,25 @@ class RainbowDQNAgent:
         self.double_q_learning = double_q_learning
         self.n_step_bootstrapping = n_step_bootstrapping
         self.noisy_net = noisy_net
+        self.dueling_net = dueling_net
 
         # Q-Network
         print(hidden_dim)
         hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        network_class = NoisyQNet if self.noisy_net else QNet
-        self.local_q_network = network_class(hidden_dim).to(device)
-        self.target_q_network = network_class(hidden_dim).to(device)
+        if self.noisy_net:
+            if self.dueling_net:
+                network_class = DuelingNoisyQNet
+            else:
+                network_class = NoisyQNet
+        else:
+            if self.dueling_net:
+                network_class = DuelingQNet
+            else:
+                network_class = QNet
+
+        self.local_q_network = network_class('rainbow_dqn', hidden_dim).to(device)
+        self.target_q_network = network_class('rainbow_dqn', hidden_dim).to(device)
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
