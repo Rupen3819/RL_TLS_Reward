@@ -8,7 +8,7 @@ from gym.spaces import Discrete
 from sumolib import checkBinary
 
 from modular_road_network_structure import create_modular_road_network
-from settings import config
+from settings import config, RewardDefinition
 from state import JunctionManager
 from stats.junction import JunctionStatistics, TL_list
 from traffic_generation import ModularTrafficGenerator
@@ -105,7 +105,7 @@ class SUMO(Env):
             yield self.old_actions[tl_id], action_combination[tl_index], tl_id
 
     def step(self, actions: dict):
-        if config['fixed_action_space'] or config['single_agent'] is False:
+        if config['fixed_action_space'] or not config['single_agent']:
             action_generator = self._fixed_action_generator
         else:
             action_generator = self._multi_action_generator
@@ -133,7 +133,7 @@ class SUMO(Env):
         # Removed because it slows training down
         # self.junction_stats.step()
 
-        if config['reward_definition'] == 'waiting':
+        if config['reward_definition'] == RewardDefinition.WAITING:
             self.junction_manager.receive_rewards()
 
         self.reward = self.junction_manager.compute_rewards()
@@ -160,7 +160,7 @@ class SUMO(Env):
             # Removed because it slows training down
             # self.junction_stats.simulate()
 
-            if config['reward_definition'] == 'waiting_fast':
+            if config['reward_definition'] == RewardDefinition.WAITING_FAST:
                 self.junction_manager.receive_rewards()
 
             if self.vehicle_stats is not None:

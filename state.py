@@ -6,7 +6,7 @@ from xml.dom import minidom
 import numpy as np
 import traci
 
-from settings import config
+from settings import config, StateRepresentation, RewardDefinition
 
 
 class JunctionManager:
@@ -103,7 +103,7 @@ class JunctionObserver:
     def receive_state(self) -> list:
         state = []
 
-        if self.state_representation == "volume_lane_fast":
+        if self.state_representation == StateRepresentation.VOLUME_LANE_FAST:
             for vehicle_id in traci.simulation.getDepartedIDList():
                 traci.vehicle.subscribe(vehicle_id, [traci.constants.VAR_LANE_ID])
 
@@ -114,15 +114,15 @@ class JunctionObserver:
                 state.append(new_state)
 
             return state
-        elif self.state_representation == "volume_lane":
+        elif self.state_representation == StateRepresentation.VOLUME_LANE:
             for lane in self.incoming_lanes:
                 state.append(traci.lane.getLastStepVehicleNumber(lane))
 
-        elif self.state_representation == "waiting_t":
+        elif self.state_representation == StateRepresentation.WAITING_T:
             for lane in self.incoming_lanes:
                 state.append(traci.lane.getWaitingTime(lane))
 
-        elif self.state_representation == "Staulänge":
+        elif self.state_representation == StateRepresentation.STAULANGE:
             # Queue length
             pass
 
@@ -130,9 +130,9 @@ class JunctionObserver:
 
     def get_state_dimension(self) -> int:
         dimension = None
-        if self.state_representation == "volume_lane" or self.state_representation == 'volume_lane_fast':
+        if self.state_representation in [StateRepresentation.VOLUME_LANE, StateRepresentation.VOLUME_LANE_FAST]:
             dimension = len(self.incoming_lanes)
-        elif self.state_representation == "waiting_t":
+        elif self.state_representation == StateRepresentation.WAITING_T:
             dimension = len(self.incoming_lanes) + 1
 
         if self.aggregation_method == "mean":
@@ -157,10 +157,10 @@ class JunctionObserver:
     def receive_reward(self):
         waiting_total = 0
 
-        if self.reward_definition == "waiting":
+        if self.reward_definition == RewardDefinition.WAITING:
             for lane in self.incoming_lanes:
                 waiting_total += traci.lane.getLastStepHaltingNumber(lane)
-        elif self.reward_definition == "waiting_fast":
+        elif self.reward_definition == RewardDefinition.WAITING_FAST:
             for vehicle_id in traci.simulation.getDepartedIDList():
                 traci.vehicle.subscribe(vehicle_id, [traci.constants.VAR_LANE_ID, traci.constants.VAR_SPEED])
             result = traci.vehicle.getAllSubscriptionResults()

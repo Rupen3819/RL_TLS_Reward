@@ -6,7 +6,7 @@ import torch.optim as optim
 
 from environment import get_intersection_name
 from model import PpoActorNet, PpoCriticNet
-
+from settings import TrainingStrategy
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -91,13 +91,13 @@ class MAPPOAgent:
         actor_dim = (self.state_size, actor_dim[0], actor_dim[1], self.action_size)
 
         print(critic_dim)
-        if self.training_strategy == 'centralized':
+        if self.training_strategy == TrainingStrategy.CENTRALIZED:
             critic_state_dim = self.state_size * self.num_agents
             critic_dim = (critic_state_dim, critic_dim[0], critic_dim[1], 1)
         else:
             critic_dim = (self.state_size, critic_dim[0], critic_dim[1], 1)
 
-        if self.actor_parameter_sharing and not self.training_strategy == 'nonstrategic':
+        if self.actor_parameter_sharing and self.training_strategy != TrainingStrategy.NONSTRATEGIC:
             self.actors = [PpoActorNet('mappo', actor_dim).to(device) for _ in range(self.num_agents)]
             self.actor_optimizers = [optim.Adam(actor.parameters(), lr=policy_learning_rate) for actor in self.actors]
         else:
@@ -105,7 +105,7 @@ class MAPPOAgent:
             self.actor_optimizers = [optim.Adam(self.actors[0].parameters(), lr=policy_learning_rate)] * self.num_agents
         print(self.actors)
 
-        if self.critic_parameter_sharing and not self.training_strategy == 'nonstrategic':
+        if self.critic_parameter_sharing and self.training_strategy != TrainingStrategy.NONSTRATEGIC:
             self.critics = [PpoCriticNet('mappo', critic_dim).to(device) for _ in range(self.num_agents)]
             self.critic_optimizers = [optim.Adam(critic.parameters(), lr=critic_learning_rate) for critic in self.critics]
         else:
@@ -146,7 +146,7 @@ class MAPPOAgent:
             if self.single_state_space:
                 dist = self.actors[agent_id](state[agent_id, :])
 
-                if self.training_strategy == 'centralized':
+                if self.training_strategy == TrainingStrategy.CENTRALIZED:
                     value = self.critics[agent_id](whole_state)
                 else:
                     value = self.critics[agent_id](state[agent_id, :])
@@ -198,7 +198,7 @@ class MAPPOAgent:
                     if self.single_state_space:
                         dist = self.actors[agent_id](states[:, agent_id])
 
-                        if self.training_strategy == 'centralized':
+                        if self.training_strategy == TrainingStrategy.CENTRALIZED:
                             critic_value = self.critics[agent_id](whole_states)
                         else:
                             critic_value = self.critics[agent_id](states[:, agent_id])

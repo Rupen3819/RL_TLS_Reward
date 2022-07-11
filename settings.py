@@ -1,83 +1,114 @@
 import os
 import sys
+from enum import Enum, EnumMeta, auto
 # from types import SimpleNamespace
 
 import configparser
 import argparse
 
 
+class TrainingStrategy(Enum):
+    NONSTRATEGIC = auto()
+    CONCURRENT = auto()
+    CENTRALIZED = auto()
+
+
+class RewardDefinition(Enum):
+    WAITING = auto()
+    WAITING_FAST = auto()
+
+
+class StateRepresentation(Enum):
+    VOLUME_LANE = auto()
+    VOLUME_LANE_FAST = auto()
+    WAITING_T = auto()
+    STAULANGE = auto()
+
+
+class AgentType(Enum):
+    DQN = auto()
+    MADQN = auto()
+    PPO = auto()
+    MAPPO = auto()
+    RAINBOW_DQN = auto()
+    WOLP = auto()
+
+    def is_multi(self):
+        return self == self.MADQN or self == self.MAPPO
+
+
 _settings = {
         'simulation': {
-            'gui': 'bool',
-            'total_episodes': 'int',
-            'max_steps': 'int',
-            'n_cars_generated': 'int',
-            'generation_process': 'string',
-            'green_duration': 'int',
-            'yellow_duration': 'int',
-            'red_duration': 'int',
-            'num_intersections': 'int',
-            'intersection_length': 'int',
+            'gui': bool,
+            'total_episodes': int,
+            'max_steps': int,
+            'n_cars_generated': int,
+            'generation_process': str,
+            'green_duration': int,
+            'yellow_duration': int,
+            'red_duration': int,
+            'num_intersections': int,
+            'intersection_length': int,
         },
 
         'model': {
-            'hidden_dim': 'int_list',
-            'critic_dim': 'int_list',
-            'actor_dim': 'int_list',
-            'batch_size': 'int',
-            'learning_rate': 'float',
-            'num_layers': 'int',
-            'policy_learning_rate': 'float',
-            'value_learning_rate': 'float',
-            'actor_init_w': 'float',
-            'critic_init_w': 'float',
-            'weight_decay': 'float',
-            'training_epochs': 'int',
-            'target_update': 'int',
-            'warmup': 'int',
+            'hidden_dim': list,
+            'critic_dim': list,
+            'actor_dim': list,
+            'batch_size': int,
+            'learning_rate': float,
+            'num_layers': int,
+            'policy_learning_rate': float,
+            'value_learning_rate': float,
+            'actor_init_w': float,
+            'critic_init_w': float,
+            'weight_decay': float,
+            'training_epochs': int,
+            'target_update': int,
+            'warmup': int,
         },
 
         'memory': {
-            'memory_size_min': 'int',
-            'memory_size_max': 'int',
+            'memory_size_min': int,
+            'memory_size_max': int,
         },
 
         'strategy': {
-            'eps_start': 'float',
-            'eps_end': 'float',
-            'eps_decay': 'float',
-            'eps_policy': 'int',
+            'eps_start': float,
+            'eps_end': float,
+            'eps_decay': float,
+            'eps_policy': int,
         },
 
         'agent': {
-            'agent_type': 'string',
-            'model': 'string',
-            'is_train': 'bool',
-            'state_representation': 'string',
-            'action_representation': 'string',
-            'reward_definition': 'string',
-            'training_strategy': 'string',
-            'actor_parameter_sharing': 'bool',
-            'critic_parameter_sharing': 'bool',
-            'num_states': 'int',
-            'num_actions': 'int',
-            'single_state_space': 'bool',
-            'fixed_action_space': 'bool',
-            'local_reward_signal': 'bool',
-            'gamma': 'float',
-            'tau': 'float',
-            'ou_theta': 'float',
-            'ou_mu': 'float',
-            'ou_sigma': 'float',
-            'gae_lambda': 'float',
-            'policy_clip': 'float',
-            'n_epochs': 'int',
+            'agent_type': AgentType,
+            'model': str,
+            'is_train': bool,
+            'state_representation': StateRepresentation,
+            'action_representation': str,
+            'reward_definition': RewardDefinition,
+            'training_strategy': TrainingStrategy,
+            'actor_parameter_sharing': bool,
+            'critic_parameter_sharing': bool,
+            'num_states': int,
+            'num_actions': int,
+            'single_state_space': bool,
+            'fixed_action_space': bool,
+            'local_reward_signal': bool,
+            'gamma': float,
+            'tau': float,
+            'ou_theta': float,
+            'ou_mu': float,
+            'ou_sigma': float,
+            'gae_lambda': float,
+            'policy_clip': float,
+            'n_epochs': int,
         },
 
         'dir': {
-            'models_path_name': 'string',
-            'test_model_path_name': 'string',
-            'sumocfg_file_name': 'string',
+            'models_path_name': str,
+            'test_model_path_name': str,
+            'sumocfg_file_name': str,
         }
     }
 
@@ -86,7 +117,6 @@ def _import_configuration():
     """Read the appropriate config file (for training or testing)."""
     config_file = 'training_settings.ini'
     options = _get_cli_options()
-    print(options)
     config = _parse_config_file(config_file, is_train_config=True)
     _overwrite_config_with_options(config, options)
 
@@ -99,31 +129,39 @@ def _import_configuration():
 
 
 def _parse_config_file(config_file, is_train_config):
-
     content = configparser.ConfigParser()
     content.read(config_file)
     config = {}
 
     for category, category_settings in _settings.items():
         for setting, setting_type in category_settings.items():
-            match setting_type:
-                case 'bool':
-                    value = content[category].getboolean(setting)
-                case 'int':
-                    value = content[category].getint(setting)
-                case 'float':
-                    value = content[category].getfloat(setting)
-                case 'string':
-                    value = content[category].get(setting)
-                case 'int_list':
-                    value = [int(v) for v in content[category].get(setting).split(',')]
-                case _:
-                    sys.exit(f'Invalid type "{setting_type}" for setting "{setting}"')
+            if setting_type == bool:
+                value = content[category].getboolean(setting)
+            elif setting_type == int:
+                value = content[category].getint(setting)
+            elif setting_type == float:
+                value = content[category].getfloat(setting)
+            elif setting_type == str:
+                value = content[category].get(setting)
+            elif setting_type == list:
+                value = [int(v) for v in content[category].get(setting).split(',')]
+            elif type(setting_type) == EnumMeta:
+                value_str = content[category].get(setting)
+
+                try:
+                    value = setting_type[value_str.upper()]
+                except KeyError:
+                    sys.exit(
+                        f'Invalid value "{value_str}" for setting "{setting}". '
+                        f'Valid values are: {[name.lower() for name in setting_type.__members__]}'
+                    )
+            else:
+                sys.exit(f'Invalid type "{setting_type}" for setting "{setting}"')
 
             config[setting] = value
 
     # Handle the multi-agent and single agent cases
-    if config['agent_type'].startswith('MA'):
+    if config['agent_type'].is_multi():
         config['single_agent'] = False
         config['fixed_action_space'] = False
     else:
@@ -139,28 +177,21 @@ def _parse_config_file(config_file, is_train_config):
 
 
 def _get_cli_options():
-    converters = {
-        'int': int,
-        'float': float,
-        'string': str,
-    }
-
     arg_parser = argparse.ArgumentParser()
 
     for category, category_settings in _settings.items():
         for setting, setting_type in category_settings.items():
             cli_option = setting.replace('_', '-')
 
-            if setting_type == 'bool':
+            if setting_type == bool:
                 action = 'store_true'
                 arg_parser.add_argument(f'--{cli_option}', action=action, default=None, dest=setting)
                 arg_parser.add_argument(f'--not-{cli_option}', action='store_false', default=None, dest=setting)
-            elif setting_type == 'int_list':
+            elif setting_type == list:
                 arg_parser.add_argument(f'--{cli_option}', action=_IntListAction, default=None, dest=setting)
             else:
                 action = 'store'
-                convert_type = converters[setting_type]
-                arg_parser.add_argument(f'--{cli_option}', action=action, type=convert_type, default=None, dest=setting)
+                arg_parser.add_argument(f'--{cli_option}', action=action, type=setting_type, default=None, dest=setting)
 
     arg_parser.add_argument('--test', action='store_false', dest='is_train')
     return arg_parser.parse_args()
