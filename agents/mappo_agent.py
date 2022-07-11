@@ -2,37 +2,36 @@ from collections import namedtuple
 
 import numpy as np
 import torch
-import torch as T
 import torch.optim as optim
 
 from environment import get_intersection_name
 from model import PpoActorNet, PpoCriticNet
 
-#BATCH_SIZE = 256        # minibatch size
-#N_EPOCHS = 10           # the optimizer’s number of epochs
-#POLICY_CLIP = 0.1       # clipping parameter epsilon
-#GAMMA = 0.99            # discount factor
-#GAE_LAMBDA = 0.95       # factor for trade-off of bias vs variance for Generalized Advantage Estimator
-#P_LR = 1e-4             # critic net learning rate
-#C_LR = 1e-3             # policy net learning rate
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class MAPPOAgent():
+
+class MAPPOAgent:
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, num_agents, actor_dim, critic_dim, training_strategy, actor_parameter_sharing, critic_parameter_sharing,
-                 single_state_space, local_reward_signal, TL_list, BATCH_SIZE, N_EPOCHS, POLICY_CLIP, GAMMA, GAE_LAMBDA, P_LR, C_LR):
-        """Initialize MAPPO Agent objects.
+    def __init__(
+            self, state_size: int, action_size: int, num_agents: int, actor_dim: tuple[int, ...],
+            critic_dim: tuple[int, ...], training_strategy: str, actor_parameter_sharing: bool,
+            critic_parameter_sharing: bool, single_state_space: bool, local_reward_signal: bool,
+            traffic_lights: dict[str, str], batch_size: int = 256, n_epochs: int = 10, policy_clip: int = 0.1,
+            gamma: float = 0.99, gae_lambda: float = 0.95, policy_learning_rate: float = 1e-4,
+            critic_learning_rate: float = 1e-3
+    ):
+        """
+        Initialize MAPPO Agent objects.
         
         Params
         ======
             state_size (int): dimension of each state
             action_size (int): dimension of each action
             num_agents (int): number of agents in multi-agent implementation
-            single_state_space (bool): whether state space for each agent is single (17) or linear (17*n)
-            local_reward_signal (bool): whether reward signal for each agent is local (r) or global (sum(r))
-            TL_list (dict): traffic light ids from the SUMO environment
+            actor_dim
+            critic_dim
             training_strategy (string):
                 - nonstrategic:
                     - each agent learns its own individual policy which is independent
@@ -54,8 +53,21 @@ class MAPPOAgent():
                 - True: all actors share a single critic which enables parameters and experiences sharing,
                         this is mostly useful where the agents are homogeneous and reward sharing holds
                 - False: each actor use independent critic (though each critic can take other agents actions as input)
+            single_state_space (bool): whether state space for each agent is single (17) or linear (17*n)
+            local_reward_signal (bool): whether reward signal for each agent is local (r) or global (sum(r))
+            traffic_lights (dict): traffic light ids from the SUMO environment
+            batch_size (int): minibatch size
+            n_epochs (int): the optimizer’s number of epochs
+            policy_clip (int): clipping parameter epsilon
+            gamma (float): discount factor
+            gae_lambda (float): factor for trade-off of bias vs variance for Generalized Advantage Estimator
+            policy_learning_rate (float): policy net learning rate
+            critic_learning_rate (float): critic net learning rate
         """
-        self.state_size = int(state_size / num_agents) if single_state_space else state_size
+        self.state_size = state_size
+        if single_state_space:
+            self.state_size //= num_agents
+
         self.action_size = action_size
         self.num_agents = num_agents
         self.training_strategy = training_strategy
@@ -64,63 +76,56 @@ class MAPPOAgent():
         self.single_state_space = single_state_space
         self.local_reward_signal = local_reward_signal
 
-        self.TL_list = TL_list
-        self.BATCH_SIZE = BATCH_SIZE
-        self.N_EPOCHS = N_EPOCHS
-        self.POLICY_CLIP = POLICY_CLIP
-        self.GAMMA = GAMMA
-        self.GAE_LAMBDA = GAE_LAMBDA
-        self.P_LR = P_LR
-        self.C_LR = C_LR
+        self.traffic_lights = traffic_lights
 
+        self.batch_size = batch_size
+        self.n_epochs = n_epochs
+        self.policy_clip = policy_clip
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.policy_learning_rate = policy_learning_rate
+        self.critic_learning_rate = critic_learning_rate
 
         # Actor-Critic-Networks
         print(actor_dim)
-        print(critic_dim)
-        actor_dim.insert(0, self.state_size)
-        actor_dim.append(self.action_size)
-        critic_dim.insert(0, self.state_size)
-        critic_dim.append(1)
+        actor_dim = (self.state_size, actor_dim[0], actor_dim[1], self.action_size)
 
-        self.actors = [PpoActorNet('mappo', actor_dim).to(device)] * self.num_agents
-        print(self.actors)
-        if self.training_strategy == 'nonstrategic':
-            self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
-        elif self.training_strategy == 'concurrent':
-            self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
-        elif self.training_strategy == 'centralized':
+        print(critic_dim)
+        if self.training_strategy == 'centralized':
             critic_state_dim = self.state_size * self.num_agents
-            critic_dim[0] = critic_state_dim
+            critic_dim = (critic_state_dim, critic_dim[0], critic_dim[1], 1)
+        else:
+            critic_dim = (self.state_size, critic_dim[0], critic_dim[1], 1)
+
+        if self.actor_parameter_sharing and not self.training_strategy == 'nonstrategic':
+            self.actors = [PpoActorNet('mappo', actor_dim).to(device) for _ in range(self.num_agents)]
+            self.actor_optimizers = [optim.Adam(actor.parameters(), lr=policy_learning_rate) for actor in self.actors]
+        else:
+            self.actors = [PpoActorNet('mappo', actor_dim).to(device)] * self.num_agents
+            self.actor_optimizers = [optim.Adam(self.actors[0].parameters(), lr=policy_learning_rate)] * self.num_agents
+        print(self.actors)
+
+        if self.critic_parameter_sharing and not self.training_strategy == 'nonstrategic':
+            self.critics = [PpoCriticNet('mappo', critic_dim).to(device) for _ in range(self.num_agents)]
+            self.critic_optimizers = [optim.Adam(critic.parameters(), lr=critic_learning_rate) for critic in self.critics]
+        else:
             self.critics = [PpoCriticNet('mappo', critic_dim).to(device)] * self.num_agents
+            self.critic_optimizers = [optim.Adam(self.critics[0].parameters(), lr=critic_learning_rate)] * self.num_agents
         print(self.critics)
 
-        self.actor_optimizers = [optim.Adam(a.parameters(), lr=P_LR) for a in self.actors]
-        self.critic_optimizers = [optim.Adam(c.parameters(), lr=C_LR) for c in self.critics]
-
-        # Tricky and memory consuming implementation of parameter sharing
-        if not self.training_strategy == 'nonstrategic':
-            if self.actor_parameter_sharing:
-                for agent_id in range(1, self.num_agents):
-                    self.actors[agent_id] = self.actors[0]
-                    self.actor_optimizers[agent_id] = self.actor_optimizers[0]
-            if self.critic_parameter_sharing:
-                for agent_id in range(1, self.num_agents):
-                    self.critics[agent_id] = self.critics[0]
-                    self.critic_optimizers[agent_id] = self.critic_optimizers[0]
-
         # Replay memory
-        self.memory = SequentialMemory(self.state_size, self.action_size, self.num_agents, self.single_state_space, self.BATCH_SIZE)
+        self.memory = MAPPOMemory(self.state_size, self.action_size, self.num_agents, self.single_state_space, self.batch_size)
 
     def remember(self, states, actions, probs, vals, rewards, dones):
         # Save experience in replay memory
         if self.single_state_space:
             states = [states[i:i + self.state_size] for i in range(0, len(states), self.state_size)]
-        else:
-            states = states
+
         if self.local_reward_signal:
             rewards = list(rewards.values())
         else:
-            rewards = sum(list(rewards.values()))
+            rewards = sum(rewards.values())
+
         actions = list(actions.values())
 
         self.memory.store_memory(states, actions, probs, vals, rewards, dones)
@@ -128,80 +133,86 @@ class MAPPOAgent():
     def choose_action(self, observation):
         # Returns actions, probs and values for given observation as per current policy
         if self.single_state_space:
-            state = T.tensor([observation], dtype=T.float).view(self.num_agents, -1).to(device)
+            state = torch.tensor([observation], dtype=torch.float).view(self.num_agents, -1).to(device)
             whole_state = state.view(-1, self.state_size * self.num_agents)
         else:
-            state = T.tensor([observation], dtype=T.float).to(device)
+            state = torch.tensor([observation], dtype=torch.float).to(device)
 
-        actions = dict.fromkeys(self.TL_list, 0)
+        actions = dict.fromkeys(self.traffic_lights, 0)
         probs = [0] * self.num_agents
         values = [0] * self.num_agents
 
         for agent_id in range(self.num_agents):
             if self.single_state_space:
                 dist = self.actors[agent_id](state[agent_id, :])
-                if self.training_strategy == 'nonstrategic':
-                    value = self.critics[agent_id](state[agent_id, :])
-                elif self.training_strategy == 'concurrent':
-                    value = self.critics[agent_id](state[agent_id, :])
-                elif self.training_strategy == 'centralized':
+
+                if self.training_strategy == 'centralized':
                     value = self.critics[agent_id](whole_state)
+                else:
+                    value = self.critics[agent_id](state[agent_id, :])
+
             else:
                 dist = self.actors[agent_id](state)
                 value = self.critics[agent_id](state)
+
             action = dist.sample()
 
-            probs[agent_id] = T.squeeze(dist.log_prob(action)).item()
-            actions[get_intersection_name(agent_id)] = T.squeeze(action).item()
-            values[agent_id] = T.squeeze(value).item()
+            probs[agent_id] = torch.squeeze(dist.log_prob(action)).item()
+            actions[get_intersection_name(agent_id)] = torch.squeeze(action).item()
+            values[agent_id] = torch.squeeze(value).item()
 
         return actions, probs, values
 
     def learn(self):
-        for _ in range(self.N_EPOCHS):
-            state_arr, action_arr, old_prob_arr, vals_arr, reward_arr, dones_arr, \
-                whole_state_arr, batches = self.memory.generate_batches()
+        for _ in range(self.n_epochs):
+            state_arr, action_arr, old_prob_arr, vals_arr, rewards, dones, whole_state_arr, batches = self.memory.generate_batches()
 
             values = vals_arr
-            advantage = np.zeros((len(reward_arr), self.num_agents), dtype=np.float32)
+            advantage = np.zeros((len(rewards), self.num_agents), dtype=np.float32)
 
-            for t in range(len(reward_arr) - 1):
+            # This can probably be done more efficiently
+            for t in range(len(rewards) - 1):
                 discount = 1
                 action = 0
-                for k in range(t, len(reward_arr) - 1):
-                    action += discount * (reward_arr[k] + self.GAMMA * values[k + 1] * (1 - int(dones_arr[k])) - values[k])
-                    discount *= self.GAMMA * self.GAE_LAMBDA
+
+                for k in range(t, len(rewards) - 1):
+                    action += discount * (rewards[k] + self.gamma * values[k + 1] * (1 - int(dones[k])) - values[k])
+                    discount *= self.gamma * self.gae_lambda
+
                 for agent_id in range(self.num_agents):
                     advantage[t][agent_id] = action[agent_id]
-            advantage = T.tensor(advantage).to(device)
 
-            values = T.tensor(values).to(device)
+            advantage = torch.tensor(advantage).to(device)
+            values = torch.tensor(values).to(device)
+            
             for batch in batches:
-                states = T.tensor(state_arr[batch], dtype=T.float).to(device)
+                states = torch.tensor(state_arr[batch], dtype=torch.float).to(device)
+
                 if self.single_state_space:
-                    whole_states = T.tensor(whole_state_arr[batch], dtype=T.float).to(device)
-                old_probs = T.tensor(old_prob_arr[batch]).to(device)
-                actions = T.tensor(action_arr[batch]).to(device)
+                    whole_states = torch.tensor(whole_state_arr[batch], dtype=torch.float).to(device)
+
+                old_probs = torch.tensor(old_prob_arr[batch]).to(device)
+                actions = torch.tensor(action_arr[batch]).to(device)
 
                 for agent_id in range(self.num_agents):
                     if self.single_state_space:
                         dist = self.actors[agent_id](states[:, agent_id])
-                        if self.training_strategy == 'nonstrategic':
-                            critic_value = self.critics[agent_id](states[:, agent_id])
-                        elif self.training_strategy == 'concurrent':
-                            critic_value = self.critics[agent_id](states[:, agent_id])
-                        elif self.training_strategy == 'centralized':
+
+                        if self.training_strategy == 'centralized':
                             critic_value = self.critics[agent_id](whole_states)
+                        else:
+                            critic_value = self.critics[agent_id](states[:, agent_id])
                     else:
                         dist = self.actors[agent_id](states)
                         critic_value = self.critics[agent_id](states)
-                    critic_value = T.squeeze(critic_value)
+
+                    critic_value = torch.squeeze(critic_value)
 
                     new_probs = dist.log_prob(actions[:, agent_id])
                     prob_ratio = new_probs.exp() / old_probs[:, agent_id].exp()
                     weighted_probs = advantage[batch][:, agent_id] * prob_ratio
-                    weighted_clipped_probs = T.clamp(prob_ratio, 1 - self.POLICY_CLIP, 1 + self.POLICY_CLIP) * advantage[batch][:, agent_id]
-                    actor_loss = -T.min(weighted_probs, weighted_clipped_probs).mean()
+                    weighted_clipped_probs = torch.clamp(prob_ratio, 1 - self.policy_clip, 1 + self.policy_clip) * advantage[batch][:, agent_id]
+                    actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
 
                     returns = advantage[batch][:, agent_id] + values[batch][:, agent_id]
                     critic_loss = (returns - critic_value) ** 2
@@ -221,19 +232,21 @@ class MAPPOAgent():
         for agent_id in range(self.num_agents):
             self.actors[agent_id].save_checkpoint(path, f'{agent_id}')
             self.critics[agent_id].save_checkpoint(path, f'{agent_id}')
+        print('... models saved successfully')
 
     def load_models(self, path):
         print('... loading models ...')
         for agent_id in range(self.num_agents):
             self.actors[agent_id].load_checkpoint(path, f'{agent_id}')
             self.critics[agent_id].load_checkpoint(path, f'{agent_id}')
+        print('... models loaded successfully ...')
 
 
-
-class SequentialMemory:
+class MAPPOMemory:
     """Buffer to store experience tuples."""
-    def __init__(self, state_size, action_size, num_agents, single_state_space, batch_size):
-        """Initialize a SequentialMemory object.
+    def __init__(self, state_size: int, action_size: int, num_agents: int, single_state_space: bool, batch_size: int):
+        """
+        Initialize a SequentialMemory object.
 
         Params
         ======
