@@ -388,4 +388,4 @@ class PrioritizedReplayBuffer:
 
         self.last_batch_indices = indices
 
-        return states, actions, rewards, next_states, dones, indices, weights
+        return states, actions, rewards, next_states, dones, weights

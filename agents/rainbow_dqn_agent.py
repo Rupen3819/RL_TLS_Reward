@@ -172,7 +172,7 @@ class RainbowDQNAgent:
             gamma (float): discount factor
         """
         if self.prioritized_replay:
-            states, actions, rewards, next_states, dones, indices, weights = experiences
+            states, actions, rewards, next_states, dones, weights = experiences
         else:
             states, actions, rewards, next_states, dones = experiences
 
@@ -192,12 +192,13 @@ class RainbowDQNAgent:
         # Get expected Q values from local model
         q_expected = self.local_q_network(states).gather(1, actions)
 
-        if self.prioritized_replay:
-            new_priorities = torch.sub(q_targets, q_expected)
-            self.memory.update_priorities(new_priorities)
-
         # Compute loss
-        loss = F.mse_loss(q_expected, q_targets)
+        if self.prioritized_replay:
+            new_priorities = q_targets - q_expected
+            self.memory.update_priorities(new_priorities)
+            loss = torch.mean((weights * new_priorities) ** 2)
+        else:
+            loss = F.mse_loss(q_expected, q_targets)
 
         # Minimize the loss
         self.optimizer.zero_grad()
