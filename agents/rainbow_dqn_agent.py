@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import QNet, NoisyQNet, DuelingQNet, DuelingNoisyQNet
-from agents.memory import ReplayBuffer, NStepReplayBuffer
+from agents.memory import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -19,7 +19,7 @@ class RainbowDQNAgent:
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
             double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True,
-            dueling_net: bool = True
+            dueling_net: bool = True, prioritized_replay: bool = True, alpha: float = 1, beta: float = 1
     ):
         """Initialize a DQN Agent object.
 
@@ -58,10 +58,13 @@ class RainbowDQNAgent:
         self.n_step_bootstrapping = n_step_bootstrapping
         self.noisy_net = noisy_net
         self.dueling_net = dueling_net
+        self.prioritized_replay = prioritized_replay
+        self.alpha = alpha
+        self.beta = beta
 
         # Q-Network
         print(hidden_dim)
-        hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
+        net_structure = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
         if self.noisy_net:
             if self.dueling_net:
@@ -74,14 +77,16 @@ class RainbowDQNAgent:
             else:
                 network_class = QNet
 
-        self.local_q_network = network_class('rainbow_dqn', hidden_dim).to(device)
-        self.target_q_network = network_class('rainbow_dqn', hidden_dim).to(device)
+        self.local_q_network = network_class('rainbow_dqn', net_structure).to(device)
+        self.target_q_network = network_class('rainbow_dqn', net_structure).to(device)
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
         # Replay memory
-        if self.n_step_bootstrapping > 1:
+        if self.prioritized_replay:
+            self.memory = PrioritizedReplayBuffer(self.buffer_size, self.batch_size, self.alpha, self.beta)
+        elif self.n_step_bootstrapping > 1:
             self.memory = NStepReplayBuffer(self.buffer_size, self.batch_size, self.n_step_bootstrapping, self.gamma)
         else:
             self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
@@ -166,7 +171,10 @@ class RainbowDQNAgent:
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
+        if self.prioritized_replay:
+            states, actions, rewards, next_states, dones, indices, weights = experiences
+        else:
+            states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
 
@@ -183,6 +191,10 @@ class RainbowDQNAgent:
 
         # Get expected Q values from local model
         q_expected = self.local_q_network(states).gather(1, actions)
+
+        if self.prioritized_replay:
+            new_priorities = torch.sub(q_targets, q_expected)
+            self.memory.update_priorities(new_priorities)
 
         # Compute loss
         loss = F.mse_loss(q_expected, q_targets)
