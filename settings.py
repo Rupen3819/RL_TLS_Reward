@@ -176,6 +176,13 @@ def _parse_config_file(config_file, is_train_config):
     return config
 
 
+def _create_enum_converter(enum_class):
+    def convert_to_enum(arg: str):
+        return enum_class[arg.upper()]
+
+    return convert_to_enum
+
+
 def _get_cli_options():
     arg_parser = argparse.ArgumentParser()
 
@@ -191,7 +198,8 @@ def _get_cli_options():
                 arg_parser.add_argument(f'--{cli_option}', action=_IntListAction, default=None, dest=setting)
             else:
                 action = 'store'
-                arg_parser.add_argument(f'--{cli_option}', action=action, type=setting_type, default=None, dest=setting)
+                arg_type = _create_enum_converter(setting_type) if type(setting_type) == EnumMeta else setting_type
+                arg_parser.add_argument(f'--{cli_option}', action=action, type=arg_type, default=None, dest=setting)
 
     arg_parser.add_argument('--test', action='store_false', dest='is_train')
     return arg_parser.parse_args()
