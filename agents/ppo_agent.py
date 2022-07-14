@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from agents.replay import PPOMemory
+from memory.replay import PPOMemory
 from model import PpoActorNet, PpoCriticNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from agents.replay import MultiSequentialMemory
+from memory.replay import MultiSequentialMemory
 from environment import get_intersection_name
 from model import QNet
 

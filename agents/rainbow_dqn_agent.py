@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import QNet, NoisyQNet, DuelingQNet, DuelingNoisyQNet
-from agents.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
+from memory.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
