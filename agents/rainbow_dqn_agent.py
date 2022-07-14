@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import QNet, NoisyQNet, DuelingQNet, DuelingNoisyQNet
+from model import QNet, DuelingQNet
 from memory.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -66,19 +66,10 @@ class RainbowDQNAgent:
         print(hidden_dim)
         net_structure = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
 
-        if self.noisy_net:
-            if self.dueling_net:
-                network_class = DuelingNoisyQNet
-            else:
-                network_class = NoisyQNet
-        else:
-            if self.dueling_net:
-                network_class = DuelingQNet
-            else:
-                network_class = QNet
+        network_class = DuelingQNet if self.dueling_net else QNet
 
-        self.local_q_network = network_class('rainbow_dqn', net_structure).to(device)
-        self.target_q_network = network_class('rainbow_dqn', net_structure).to(device)
+        self.local_q_network = network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+        self.target_q_network = network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)

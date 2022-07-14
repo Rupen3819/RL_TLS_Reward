@@ -111,36 +111,39 @@ class ReluNet(AbstractNet):
 
 
 class QNet(ReluNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
-        super().__init__('q_network', algorithm_name, nn.Linear, net_structure)
-
-
-class NoisyQNet(ReluNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
-        super().__init__('noisy_q_network', algorithm_name, NoisyLinear, net_structure)
+    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
+        self.noisy = noisy
+        network_type = 'noisy_q_network' if self.noisy else 'q_network'
+        layer_class = NoisyLinear if self.noisy else nn.Linear
+        super().__init__(network_type, algorithm_name, layer_class, net_structure)
 
     def reset_noise(self):
+        if not self.noisy:
+            return
+
         for noisy_layer in self.layers:
             noisy_layer.reset_noise()
 
 
-class DuelingNet(AbstractNet):
-    def __init__(self, network_type: str, algorithm_name: str, layer_class: Type, net_structure: tuple[int, ...]):
-        super().__init__(network_type, algorithm_name)
-
+class DuelingQNet(AbstractNet):
+    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
         if len(net_structure) < 4:
             raise ValueError('Network structure must have at least 4 dimensions (input, two hidden dims, and output)')
+
+        self.noisy = noisy
+        network_type = 'noisy_q_network' if self.noisy else 'q_network'
+        layer_class = NoisyLinear if self.noisy else nn.Linear
+
+        super().__init__(network_type, algorithm_name)
 
         state_size, *hidden_dims, action_size = net_structure
 
         common_layers = [layer_class(state_size, hidden_dims[0]), nn.ReLU()]
-
         for i in range(len(hidden_dims) - 1):
             common_layers += [
                 layer_class(hidden_dims[i], hidden_dims[i + 1]),
                 nn.ReLU()
             ]
-
         self.common_stream = nn.Sequential(*common_layers)
 
         self.value_stream = nn.Sequential(
@@ -163,17 +166,10 @@ class DuelingNet(AbstractNet):
 
         return value + advantage - advantage.mean()
 
-
-class DuelingQNet(DuelingNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
-        super().__init__('q_network', algorithm_name, nn.Linear, net_structure)
-
-
-class DuelingNoisyQNet(DuelingNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...]):
-        super().__init__('noisy_q_network', algorithm_name, NoisyLinear, net_structure)
-
     def reset_noise(self):
+        if not self.noisy:
+            return
+
         for stream in [self.common_stream, self.value_stream, self.advantage_stream]:
             for i in range(0, len(stream), 2):
                 stream[i].reset_noise()
