@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import QNet, NoisyQNet, DuelingQNet, DuelingNoisyQNet
-from agents.memory import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
+from agents.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -86,10 +86,11 @@ class RainbowDQNAgent:
         # Replay memory
         if self.prioritized_replay:
             self.memory = PrioritizedReplayBuffer(self.buffer_size, self.batch_size, self.alpha, self.beta)
-        elif self.n_step_bootstrapping > 1:
-            self.memory = NStepReplayBuffer(self.buffer_size, self.batch_size, self.n_step_bootstrapping, self.gamma)
         else:
             self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
+
+        if self.n_step_bootstrapping > 1:
+            self.memory = NStepReplayBuffer(self.memory, self.n_step_bootstrapping, self.gamma)
 
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0

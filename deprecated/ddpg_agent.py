@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from agents.memory import ReplayBuffer
+from agents.replay import ReplayBuffer
 from deprecated.random_process import OrnsteinUhlenbeckProcess
 from model import WolpActorNet, WolpCriticNet
 
