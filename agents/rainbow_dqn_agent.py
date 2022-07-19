@@ -37,6 +37,13 @@ class RainbowDQNAgent:
             learning_rate (float): learning rate
             update_interval (int): how often to update the network
             double_q_learning (bool): if double Q learning should be used to decouple action selection from evaluation
+            n_step_bootstrapping (int):
+            noisy_net (bool):
+            dueling_net (bool):
+            prioritized_replay (bool):
+            alpha (float):
+            beta (float):
+
         """
         self.state_size = state_size
         if fixed_action_space:
@@ -86,18 +93,21 @@ class RainbowDQNAgent:
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0
 
+    def one_hot_state(self, index, state):
+        one_hot = np.zeros(len(self.traffic_lights))
+        np.put(one_hot, index, 1)
+        state_one_hot = np.array(one_hot.tolist() + state)
+        return state_one_hot
+
     def step(self, state, action, reward, next_state, done):
-        # Save experience in replay memory
         reward = sum(reward.values())
 
+        # Save experience in replay memory
         if self.fixed_action_space:
-            for tl_index, tl_id in enumerate(self.traffic_lights):
-                one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, tl_index, 1)
-                state_one_hot = np.array(one_hot.tolist() + state)
-                next_state_one_hot = np.array(one_hot.tolist() + next_state)
-
-                self.memory.add(state_one_hot, action[tl_id], reward, next_state_one_hot, done)
+            for index, traffic_light_id in enumerate(self.traffic_lights):
+                state_one_hot = self.one_hot_state(index, state,)
+                next_state_one_hot = self.one_hot_state(index, next_state)
+                self.memory.add(state_one_hot, action[traffic_light_id], reward, next_state_one_hot, done)
         else:
             self.memory.add(state, action, reward, next_state, done)
 
@@ -122,37 +132,32 @@ class RainbowDQNAgent:
             action_dict = dict.fromkeys(self.traffic_lights, 0)
             action_values_dict = dict.fromkeys(self.traffic_lights, 0)
 
-            for tl_index, tl_id in enumerate(self.traffic_lights):
-                one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, tl_index, 1)
-                state_one_hot = np.array(one_hot.tolist() + state.tolist())
-                state_one_hot = torch.from_numpy(state_one_hot).float().unsqueeze(0).to(device)
+            for index, traffic_light_id in enumerate(self.traffic_lights):
+                state_one_hot = self.one_hot_state(index, state.tolist())
+                action_values, action = self.choose_action(state_one_hot, eps)
+                action_values_dict[traffic_light_id] = action_values
+                action_dict[traffic_light_id] = action
 
-                self.local_q_network.eval()
-                with torch.no_grad():
-                    action_values = self.local_q_network(state_one_hot)
-                self.local_q_network.train()
-
-                action_values_dict[tl_id] = action_values.tolist()
-
-                # Epsilon-greedy action selection
-                if self.noisy_net or random.random() > eps:
-                    action_dict[tl_id] = np.argmax(action_values.cpu().data.numpy())
-                else:
-                    action_dict[tl_id] = random.choice(np.arange(self.action_size))
             return action_values_dict, action_dict
         else:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-            self.local_q_network.eval()
-            with torch.no_grad():
-                action_values = self.local_q_network(state)
-            self.local_q_network.train()
+            return self.choose_action(state, eps)
 
-            # Epsilon-greedy action selection
-            if self.noisy_net or random.random() > eps:
-                return action_values.tolist(), np.argmax(action_values.cpu().data.numpy())
-            else:
-                return action_values.tolist(), random.choice(np.arange(self.action_size))
+    def choose_action(self, state, eps):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+
+        self.local_q_network.eval()
+        with torch.no_grad():
+            action_values = self.local_q_network(state)
+        self.local_q_network.train()
+
+        # Action selection is epsilon greedy if noisy net is disabled, otherwise it is always greedy
+        choose_greedily = self.noisy_net or random.random() > eps
+        if choose_greedily:
+            action = np.argmax(action_values.cpu().data.numpy())
+        else:
+            action = random.choice(np.arange(self.action_size))
+
+        return action_values.tolist(), action
 
     def learn(self, experiences, gamma: float):
         """
@@ -169,14 +174,7 @@ class RainbowDQNAgent:
             states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
-
-        if self.double_q_learning:
-            local_argmax_states = self.local_q_network(next_states).detach().argmax(1)
-            q_targets_next = self.target_q_network(next_states).detach()[
-                torch.arange(self.batch_size), local_argmax_states
-            ].unsqueeze(1)
-        else:
-            q_targets_next = self.target_q_network(next_states).detach().max(1)[0].unsqueeze(1)
+        q_targets_next = self.compute_next_q_targets(next_states)
 
         # Compute Q targets for current states
         q_targets = rewards + (gamma * q_targets_next * (1 - dones))
@@ -204,6 +202,15 @@ class RainbowDQNAgent:
             self.local_q_network.reset_noise()
             self.target_q_network.reset_noise()
 
+    def compute_next_q_targets(self, next_states):
+        if self.double_q_learning:
+            local_argmax_states = self.local_q_network(next_states).detach().argmax(1)
+            return self.target_q_network(next_states).detach()[
+                torch.arange(self.batch_size), local_argmax_states
+            ].unsqueeze(1)
+        else:
+            return self.target_q_network(next_states).detach().max(1)[0].unsqueeze(1)
+
     def soft_update(self, tau: float):
         """
         Soft update model parameters.
@@ -217,12 +224,12 @@ class RainbowDQNAgent:
         for target_param, local_param in zip(self.target_q_network.parameters(), self.local_q_network.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
-    def save_models(self, path):
-        print('... saving model ...')
+    def save_model(self, path):
+        print('Saving model')
         self.local_q_network.save_checkpoint(path)
-        print('... model saved successfully ...')
+        print('Model saved successfully')
 
-    def load_models(self, path):
-        print('... loading model ...')
+    def load_model(self, path):
+        print('Loading model')
         self.local_q_network.load_checkpoint(path)
-        print('... model loaded successfully ...')
+        print('Model loaded sucessfully')
