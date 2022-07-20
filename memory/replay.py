@@ -155,45 +155,50 @@ class PrioritizedReplayBuffer:
 
 
 class NStepReplayBuffer(AbstractReplayBuffer):
-    def __init__(self, replay_buffer, n_step, gamma):
+    def __init__(self, replay_buffer, n_step, gamma, step_buffers=1):
         super().__init__()
         self.replay_buffer = replay_buffer
         self.n_step = n_step
         self.gamma = gamma
-        self.past_experiences = RingBuffer(max_len=n_step)
+        self.past_experiences = [RingBuffer(max_len=n_step) for _ in range(step_buffers)]
+        self.step_buffers = step_buffers
+        self.buffer_index = 0
 
     def __len__(self):
         return len(self.replay_buffer)
 
     def add(self, state, action, reward, next_state, done):
         experience = Experience(state, action, reward, next_state, done)
+        past_experiences = self.past_experiences[self.buffer_index]
 
         # Add the latest experience to the buffer, discarding the oldest experience if full
         # (which will already have been processed)
-        self.past_experiences.append(experience)
+        past_experiences.append(experience)
 
         if done:
             # Process all remaining experiences in the buffer
-            for i in range(len(self.past_experiences)):
-                self._process_experience(i, next_state)
-        elif len(self.past_experiences) >= self.n_step:
+            for i in range(len(past_experiences)):
+                self._process_experience(past_experiences, i, next_state)
+        elif len(past_experiences) >= self.n_step:
             # Process the oldest experience in the buffer
-            self._process_experience(0, next_state)
+            self._process_experience(past_experiences, 0, next_state)
+
+        self.buffer_index = (self.buffer_index + 1) % self.step_buffers
 
     def sample(self):
         return self.replay_buffer.sample()
 
-    def _process_experience(self, experience_index, new_next_state):
+    def _process_experience(self, past_experiences, experience_index, new_next_state):
         total_reward = 0
 
         # Compute total reward
-        for i in range(len(self.past_experiences) - experience_index):
-            past_experience = self.past_experiences[i + experience_index]
+        for i in range(len(past_experiences) - experience_index):
+            past_experience = past_experiences[i + experience_index]
             reward = past_experience.reward
             total_reward += reward * math.pow(self.gamma, i)
 
         # Store oldest experience in replay buffer, with its new N-step reward and new next state
-        (past_state, past_action, _, _, past_done) = self.past_experiences[experience_index]
+        (past_state, past_action, _, _, past_done) = past_experiences[experience_index]
         self.replay_buffer.add(past_state, past_action, total_reward, new_next_state, past_done)
 
 

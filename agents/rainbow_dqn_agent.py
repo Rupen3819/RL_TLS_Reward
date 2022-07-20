@@ -88,7 +88,8 @@ class RainbowDQNAgent:
             self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 
         if self.n_step_bootstrapping > 1:
-            self.memory = NStepReplayBuffer(self.memory, self.n_step_bootstrapping, self.gamma)
+            step_buffers = len(self.traffic_lights) if fixed_action_space else 1
+            self.memory = NStepReplayBuffer(self.memory, self.n_step_bootstrapping, self.gamma, step_buffers)
 
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0
@@ -105,7 +106,7 @@ class RainbowDQNAgent:
         # Save experience in replay memory
         if self.fixed_action_space:
             for index, traffic_light_id in enumerate(self.traffic_lights):
-                state_one_hot = self.one_hot_state(index, state,)
+                state_one_hot = self.one_hot_state(index, state)
                 next_state_one_hot = self.one_hot_state(index, next_state)
                 self.memory.add(state_one_hot, action[traffic_light_id], reward, next_state_one_hot, done)
         else:
