@@ -175,6 +175,39 @@ class DuelingQNet(AbstractNet):
                 stream[i].reset_noise()
 
 
+class DistNet(nn.Module):
+    def __init__(self, network_class: Type, support: torch.Tensor, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
+        super().__init__()
+        self.support = support
+        self.n_atoms = support.size(dim=0)
+
+        state_size, *layers, action_size = net_structure
+        net_structure = (state_size, *layers, action_size * self.n_atoms)
+        self.action_size = action_size
+
+        self.network = network_class(algorithm_name, net_structure, noisy)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        dist = self.dist(x)
+        q = torch.sum(dist * self.support, dim=2)
+        return q
+
+    def dist(self, x: torch.Tensor) -> torch.Tensor:
+        q_atoms = self.network(x).view(-1, self.action_size, self.n_atoms)
+        dist = F.softmax(q_atoms, dim=-1)
+        return dist.clamp(min=1e-3)
+
+    def reset_noise(self):
+        self.network.reset_noise()
+
+    def parameters(self):
+        return self.network.parameters()
+
+    def to(self, *args, **kwargs):
+        self.network = self.network.to(*args, **kwargs)
+        return self
+
+
 class PpoActorNet(ReluNet):
     def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
         super().__init__('actor', algorithm_name, nn.Linear, net_structure)

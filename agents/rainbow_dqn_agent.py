@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import QNet, DuelingQNet
+from model import QNet, DuelingQNet, DistNet
 from memory.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -19,7 +19,8 @@ class RainbowDQNAgent:
             traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
             tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
             double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True,
-            dueling_net: bool = True, prioritized_replay: bool = True, alpha: float = 1, beta: float = 1
+            dueling_net: bool = True, prioritized_replay: bool = True, alpha: float = 1, beta: float = 1,
+            n_atoms: int = 51, v_min: float = -1000, v_max: float = 0
     ):
         """Initialize a DQN Agent object.
 
@@ -43,6 +44,9 @@ class RainbowDQNAgent:
             prioritized_replay (bool):
             alpha (float):
             beta (float):
+            n_atoms (float):
+            v_min (float):
+            v_max (float):
 
         """
         self.state_size = state_size
@@ -68,6 +72,17 @@ class RainbowDQNAgent:
         self.prioritized_replay = prioritized_replay
         self.alpha = alpha
         self.beta = beta
+        self.n_atoms = n_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.dist_learning = self.n_atoms > 1
+
+        if self.dist_learning:
+            self.support = torch.linspace(self.v_min, self.v_max, self.n_atoms).to(device)
+            self.delta_z = (self.v_max - self.v_min) / (self.n_atoms - 1)
+            self.offset = torch.linspace(
+                0, (self.batch_size - 1) * self.n_atoms, self.batch_size
+            ).long()
 
         # Q-Network
         print(hidden_dim)
@@ -75,8 +90,14 @@ class RainbowDQNAgent:
 
         network_class = DuelingQNet if self.dueling_net else QNet
 
-        self.local_q_network = network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
-        self.target_q_network = network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+        if self.dist_learning:
+            self.local_q_network, self.target_q_network = [
+                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, noisy=self.noisy_net).to(device) for _ in range(2)
+            ]
+        else:
+            self.local_q_network, self.target_q_network = [
+                network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device) for _ in range(2)
+            ]
         print(self.local_q_network)
 
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
@@ -150,6 +171,8 @@ class RainbowDQNAgent:
         with torch.no_grad():
             action_values = self.local_q_network(state)
         self.local_q_network.train()
+        print(action_values)
+
 
         # Action selection is epsilon greedy if noisy net is disabled, otherwise it is always greedy
         choose_greedily = self.noisy_net or random.random() > eps
@@ -158,6 +181,7 @@ class RainbowDQNAgent:
         else:
             action = random.choice(np.arange(self.action_size))
 
+        print(action)
         return action_values.tolist(), action
 
     def learn(self, experiences, gamma: float):
@@ -174,22 +198,58 @@ class RainbowDQNAgent:
         else:
             states, actions, rewards, next_states, dones = experiences
 
-        # Get max predicted Q values (for next states) from target model
-        q_targets_next = self.compute_next_q_targets(next_states)
+        if not self.dist_learning:
+            # Get max predicted Q values (for next states) from target model
+            q_targets_next = self.compute_next_q_targets(next_states)
 
-        # Compute Q targets for current states
-        q_targets = rewards + (gamma * q_targets_next * (1 - dones))
+            # Compute Q targets for current states
+            q_targets = rewards + (gamma * q_targets_next * (1 - dones))
 
-        # Get expected Q values from local model
-        q_expected = self.local_q_network(states).gather(1, actions)
+            # Get expected Q values from local model
+            q_expected = self.local_q_network(states).gather(1, actions)
 
-        # Compute loss
-        if self.prioritized_replay:
-            new_priorities = q_targets - q_expected
-            self.memory.update_priorities(new_priorities)
-            loss = torch.mean((weights * new_priorities) ** 2)
+            # Compute loss
+            if self.prioritized_replay:
+                new_priorities = q_targets - q_expected
+                self.memory.update_priorities(new_priorities)
+                loss = torch.mean((weights * new_priorities) ** 2)
+            else:
+                loss = F.mse_loss(q_expected, q_targets)
+
         else:
-            loss = F.mse_loss(q_expected, q_targets)
+            with torch.no_grad():
+                next_actions = self.target_q_network(next_states).argmax(1)
+                next_dists = self.target_q_network.dist(next_states)[range(self.batch_size), next_actions]
+
+                t_z = rewards + (gamma * self.support * (1 - dones))
+
+                # Constrain to between the min and max atoms
+                t_z = t_z.clamp(self.v_min, self.v_max)
+
+                projected_atoms = (t_z - self.v_min) / self.delta_z
+                lower_atoms = projected_atoms.floor().long()
+                upper_atoms = projected_atoms.ceil().long()
+
+                # Distribute the probability
+
+                dist_projection = torch.zeros(next_dists.size(), device=device)
+
+                lower_indices = (lower_atoms + self.offset).view(-1)
+                lower_prob_weights = (next_dists * (upper_atoms.float() - projected_atoms)).view(-1)
+                dist_projection.view(-1).index_add_(
+                    0, lower_indices, lower_prob_weights
+                )
+
+                upper_indices = (upper_atoms + self.offset).view(-1)
+                upper_prob_weights = (next_dists * (projected_atoms - lower_atoms.float())).view(-1)
+                dist_projection.view(-1).index_add_(
+                    0, upper_indices, upper_prob_weights
+                )
+
+                # Compute the cross-entropy loss
+                dist = self.local_q_network(states)
+                log_prob = torch.log(dist[range(self.batch_size), actions])
+                loss = -(dist_projection * log_prob).sum(dim=1).mean()
 
         # Minimize the loss
         self.optimizer.zero_grad()
