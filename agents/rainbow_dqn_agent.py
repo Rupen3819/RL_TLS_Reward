@@ -15,12 +15,28 @@ class RainbowDQNAgent:
     """Interacts with and learns from the environment."""
 
     def __init__(
-            self, state_size: int, action_size: int, hidden_dim: tuple[int, ...], fixed_action_space: bool,
-            traffic_lights: dict[str, str], buffer_size: int = int(1e5), batch_size: int = 64, gamma: float = 0.99,
-            tau: float = 1e-3, learning_rate: float = 5e-4, update_interval: int = 4,
-            double_q_learning: bool = True, n_step_bootstrapping: int = 1, noisy_net: bool = True,
-            dueling_net: bool = True, prioritized_replay: bool = True, alpha: float = 1, beta: float = 1,
-            n_atoms: int = 51, v_min: float = -1000, v_max: float = 0
+            self,
+            state_size: int,
+            action_size: int,
+            hidden_dim: tuple[int, ...],
+            fixed_action_space: bool = False,
+            traffic_lights: dict[str, str] = None,
+            buffer_size: int = int(1e5),
+            batch_size: int = 64,
+            gamma: float = 0.99,
+            tau: float = 1e-3,
+            learning_rate: float = 5e-4,
+            update_interval: int = 4,
+            double_q_learning: bool = True,
+            n_step_bootstrapping: int = 1,
+            noisy_net: bool = True,
+            dueling_net: bool = True,
+            prioritized_replay: bool = True,
+            alpha: float = 1.,
+            beta: float = 1.,
+            n_atoms: int = 51,
+            v_min: float = -1000,
+            v_max: float = 0.
     ):
         """Initialize a DQN Agent object.
 
@@ -55,7 +71,6 @@ class RainbowDQNAgent:
 
         self.action_size = action_size
         self.fixed_action_space = fixed_action_space
-
         self.traffic_lights = traffic_lights
 
         self.buffer_size = buffer_size
@@ -77,32 +92,31 @@ class RainbowDQNAgent:
         self.v_max = v_max
         self.dist_learning = self.n_atoms > 1
 
-        if self.dist_learning:
+        # Initialize Q network
+        net_structure = (self.state_size, *hidden_dim, self.action_size)
+        network_class = DuelingQNet if self.dueling_net else QNet
+
+        if not self.dist_learning:
+            self.local_q_network, self.target_q_network = [
+                network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+                for _ in range(2)
+            ]
+        else:
             self.support = torch.linspace(self.v_min, self.v_max, self.n_atoms).to(device)
             self.delta_z = (self.v_max - self.v_min) / (self.n_atoms - 1)
             self.offset = torch.linspace(
                 0, (self.batch_size - 1) * self.n_atoms, self.batch_size
-            ).long()
+            ).long().unsqueeze(1).expand(self.batch_size, self.n_atoms).to(device)
 
-        # Q-Network
-        print(hidden_dim)
-        net_structure = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
-
-        network_class = DuelingQNet if self.dueling_net else QNet
-
-        if self.dist_learning:
             self.local_q_network, self.target_q_network = [
-                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, noisy=self.noisy_net).to(device) for _ in range(2)
+                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+                for _ in range(2)
             ]
-        else:
-            self.local_q_network, self.target_q_network = [
-                network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device) for _ in range(2)
-            ]
+
         print(self.local_q_network)
-
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
-        # Replay memory
+        # Initialize experience replay memory
         if self.prioritized_replay:
             self.memory = PrioritizedReplayBuffer(self.buffer_size, self.batch_size, self.alpha, self.beta)
         else:
@@ -151,16 +165,16 @@ class RainbowDQNAgent:
             eps (float): epsilon, for epsilon-greedy action selection
         """
         if self.fixed_action_space:
-            action_dict = dict.fromkeys(self.traffic_lights, 0)
-            action_values_dict = dict.fromkeys(self.traffic_lights, 0)
+            actions = {}
+            action_values = {}
 
             for index, traffic_light_id in enumerate(self.traffic_lights):
                 state_one_hot = self.one_hot_state(index, state.tolist())
-                action_values, action = self.choose_action(state_one_hot, eps)
-                action_values_dict[traffic_light_id] = action_values
-                action_dict[traffic_light_id] = action
+                action_value_list, action = self.choose_action(state_one_hot, eps)
+                action_values[traffic_light_id] = action_value_list
+                actions[traffic_light_id] = action
 
-            return action_values_dict, action_dict
+            return action_values, actions
         else:
             return self.choose_action(state, eps)
 
@@ -171,8 +185,6 @@ class RainbowDQNAgent:
         with torch.no_grad():
             action_values = self.local_q_network(state)
         self.local_q_network.train()
-        print(action_values)
-
 
         # Action selection is epsilon greedy if noisy net is disabled, otherwise it is always greedy
         choose_greedily = self.noisy_net or random.random() > eps
@@ -181,7 +193,6 @@ class RainbowDQNAgent:
         else:
             action = random.choice(np.arange(self.action_size))
 
-        print(action)
         return action_values.tolist(), action
 
     def learn(self, experiences, gamma: float):
@@ -246,10 +257,10 @@ class RainbowDQNAgent:
                     0, upper_indices, upper_prob_weights
                 )
 
-                # Compute the cross-entropy loss
-                dist = self.local_q_network(states)
-                log_prob = torch.log(dist[range(self.batch_size), actions])
-                loss = -(dist_projection * log_prob).sum(dim=1).mean()
+            # Compute the cross-entropy loss
+            dist = self.local_q_network.dist(states)
+            log_prob = torch.log(dist[range(self.batch_size), actions])
+            loss = -(dist_projection * log_prob).sum(dim=1).mean()
 
         # Minimize the loss
         self.optimizer.zero_grad()
@@ -283,7 +294,8 @@ class RainbowDQNAgent:
         """
         # Copy weights from local model to target model, using tau as interpolation factor
         for target_param, local_param in zip(self.target_q_network.parameters(), self.local_q_network.parameters()):
-            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
+            new_param_value = tau * local_param.data + (1.0 - tau) * target_param.data
+            target_param.data.copy_(new_param_value)
 
     def save_model(self, path):
         print('Saving model')

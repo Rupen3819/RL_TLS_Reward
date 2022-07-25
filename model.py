@@ -207,6 +207,12 @@ class DistNet(nn.Module):
         self.network = self.network.to(*args, **kwargs)
         return self
 
+    def save_checkpoint(self, *args, **kwargs):
+        self.network.save_checkpoint(*args, **kwargs)
+
+    def load_checkpoint(self, *args, **kwargs):
+        self.network.load_checkpoint(*args, **kwargs)
+
 
 class PpoActorNet(ReluNet):
     def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
