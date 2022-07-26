@@ -97,15 +97,22 @@ class RainbowDQNAgent:
 
         # Initialize Q network
         net_structure = [self.state_size, *hidden_dim, self.action_size]
-        network_class = DuelingQNet if self.dueling_net else QNet
+
         layer_class = NoisyLinear if self.noisy_net else nn.Linear
         net_layers = [layer_class] * (len(net_structure) - 1)
 
         if not self.dist_learning:
-            self.local_q_network, self.target_q_network = [
-                network_class('rainbow_dqn', net_structure, net_layers).to(device)
-                for _ in range(2)
-            ]
+            if not self.dueling_net:
+                self.local_q_network, self.target_q_network = [
+                    QNet('rainbow_dqn', net_structure, net_layers).to(device)
+                    for _ in range(2)
+                ]
+            else:
+                self.local_q_network, self.target_q_network = [
+                    DuelingQNet('rainbow_dqn', net_structure, net_layers, action_size).to(device)
+                    for _ in range(2)
+                ]
+
         else:
             self.support = torch.linspace(self.v_min, self.v_max, self.n_atoms).to(device)
             self.delta_z = (self.v_max - self.v_min) / (self.n_atoms - 1)
@@ -114,7 +121,7 @@ class RainbowDQNAgent:
             ).long().unsqueeze(1).expand(self.batch_size, self.n_atoms).to(device)
 
             self.local_q_network, self.target_q_network = [
-                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, net_layers).to(device)
+                DistNet('rainbow_dqn', net_structure, net_layers, self.support, self.dueling_net).to(device)
                 for _ in range(2)
             ]
 

@@ -146,6 +146,7 @@ class DuelingQNet(AbstractNet):
             algorithm_name: str,
             net_structure: list[int, ...],
             net_layers: list[Type, ...],
+            action_size: int,
             num_dual_hidden_layers: bool = 1
     ):
         if len(net_structure) < 4:
@@ -171,12 +172,12 @@ class DuelingQNet(AbstractNet):
         dual_layer_classes = net_layers[-(num_dual_layers - 1):]
 
         self.value_stream = self._create_stream(
-            net_structure[-num_dual_layers:],
+            net_structure[-num_dual_layers: -1] + [net_structure[-1] // action_size],
             dual_layer_classes
         )
 
         self.advantage_stream = self._create_stream(
-            net_structure[-num_dual_layers : -1] + [1],
+            net_structure[-num_dual_layers:],
             dual_layer_classes
         )
 
@@ -202,10 +203,8 @@ class DuelingQNet(AbstractNet):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.common_stream(x)
-
         value = self.value_stream(x)
         advantage = self.advantage_stream(x)
-
         return value + advantage - advantage.mean()
 
     def reset_noise(self):
@@ -216,11 +215,11 @@ class DuelingQNet(AbstractNet):
 class DistNet(nn.Module):
     def __init__(
             self,
-            network_class: Type,
-            support: torch.Tensor,
             algorithm_name: str,
             net_structure: list[int, ...],
-            net_layers: list[Type, ...]
+            net_layers: list[Type, ...],
+            support: torch.Tensor,
+            is_dueling: bool = False
     ):
         super().__init__()
         self.support = support
@@ -229,8 +228,12 @@ class DistNet(nn.Module):
         state_size, *layers, action_size = net_structure
         net_structure = [state_size, *layers, action_size * self.n_atoms]
         self.action_size = action_size
+        self.is_dueling = is_dueling
 
-        self.network = network_class(algorithm_name, net_structure, net_layers)
+        if self.is_dueling:
+            self.network = DuelingQNet(algorithm_name, net_structure, net_layers, action_size)
+        else:
+            self.network = QNet(algorithm_name, net_structure, net_layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         dist = self.dist(x)
