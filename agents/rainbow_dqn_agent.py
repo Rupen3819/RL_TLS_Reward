@@ -2,10 +2,11 @@ import random
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import QNet, DuelingQNet, DistNet
+from model import QNet, DuelingQNet, DistNet, NoisyLinear
 from memory.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -18,7 +19,7 @@ class RainbowDQNAgent:
             self,
             state_size: int,
             action_size: int,
-            hidden_dim: tuple[int, ...],
+            hidden_dim: list[int, ...],
             fixed_action_space: bool = False,
             traffic_lights: dict[str, str] = None,
             buffer_size: int = int(1e5),
@@ -93,12 +94,14 @@ class RainbowDQNAgent:
         self.dist_learning = self.n_atoms > 1
 
         # Initialize Q network
-        net_structure = (self.state_size, *hidden_dim, self.action_size)
+        net_structure = [self.state_size, *hidden_dim, self.action_size]
         network_class = DuelingQNet if self.dueling_net else QNet
+        layer_class = NoisyLinear if self.noisy_net else nn.Linear
+        net_layers = [layer_class] * (len(net_structure) - 1)
 
         if not self.dist_learning:
             self.local_q_network, self.target_q_network = [
-                network_class('rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+                network_class('rainbow_dqn', net_structure, net_layers).to(device)
                 for _ in range(2)
             ]
         else:
@@ -109,7 +112,7 @@ class RainbowDQNAgent:
             ).long().unsqueeze(1).expand(self.batch_size, self.n_atoms).to(device)
 
             self.local_q_network, self.target_q_network = [
-                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, noisy=self.noisy_net).to(device)
+                DistNet(network_class, self.support, 'rainbow_dqn', net_structure, net_layers).to(device)
                 for _ in range(2)
             ]
 

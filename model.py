@@ -96,10 +96,16 @@ class AbstractNet(nn.Module):
 
 
 class ReluNet(AbstractNet):
-    def __init__(self, network_type: str, algorithm_name: str, layer_class: Type, net_structure: tuple[int, ...]):
+    def __init__(
+            self,
+            network_type: str,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...]
+    ):
         super().__init__(network_type, algorithm_name)
         self.layers = nn.ModuleList([
-            layer_class(net_structure[layer], net_structure[layer + 1])
+            net_layers[layer](net_structure[layer], net_structure[layer + 1])
             for layer in range(len(net_structure) - 1)
         ])
 
@@ -111,52 +117,88 @@ class ReluNet(AbstractNet):
 
 
 class QNet(ReluNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
-        self.noisy = noisy
+    def __init__(
+            self,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...] = None
+    ):
         network_type = 'noisy_q_network' if self.noisy else 'q_network'
-        layer_class = NoisyLinear if self.noisy else nn.Linear
-        super().__init__(network_type, algorithm_name, layer_class, net_structure)
+
+        if net_layers is None:
+            net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
+
+        super().__init__(network_type, algorithm_name, net_structure, net_layers)
+
+        self.noisy_layers = [
+            layer for layer, layer_class in zip(self.layers, net_layers)
+            if layer_class == NoisyLinear
+        ]
 
     def reset_noise(self):
-        if not self.noisy:
-            return
-
-        for noisy_layer in self.layers:
+        for noisy_layer in self.noisy_layers:
             noisy_layer.reset_noise()
 
 
 class DuelingQNet(AbstractNet):
-    def __init__(self, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
+    def __init__(
+            self,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...],
+            num_dual_hidden_layers: bool = 1
+    ):
         if len(net_structure) < 4:
             raise ValueError('Network structure must have at least 4 dimensions (input, two hidden dims, and output)')
 
-        self.noisy = noisy
-        network_type = 'noisy_q_network' if self.noisy else 'q_network'
-        layer_class = NoisyLinear if self.noisy else nn.Linear
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
+
+        if net_layers is None:
+            net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
 
         super().__init__(network_type, algorithm_name)
 
-        state_size, *hidden_dims, action_size = net_structure
+        self.noisy_layers = []
 
-        common_layers = [layer_class(state_size, hidden_dims[0]), nn.ReLU()]
-        for i in range(len(hidden_dims) - 1):
-            common_layers += [
-                layer_class(hidden_dims[i], hidden_dims[i + 1]),
-                nn.ReLU()
-            ]
-        self.common_stream = nn.Sequential(*common_layers)
-
-        self.value_stream = nn.Sequential(
-            layer_class(hidden_dims[-2], hidden_dims[-1]),
-            nn.ReLU(),
-            layer_class(hidden_dims[-1], 1)
+        num_common_hidden_layers = len(net_structure) - num_dual_hidden_layers - 1
+        self.common_stream = self._create_stream(
+            net_structure[:num_common_hidden_layers],
+            net_layers[:num_common_hidden_layers - 1],
+            [nn.ReLU()]
         )
 
-        self.advantage_stream = nn.Sequential(
-            layer_class(hidden_dims[-2], hidden_dims[-1]),
-            nn.ReLU(),
-            layer_class(hidden_dims[-1], action_size)
+        num_dual_layers = num_dual_hidden_layers + 2
+        dual_layer_classes = net_layers[-(num_dual_layers - 1):]
+
+        self.value_stream = self._create_stream(
+            net_structure[-num_dual_layers:],
+            dual_layer_classes
         )
+
+        self.advantage_stream = self._create_stream(
+            net_structure[-num_dual_layers : -1] + [1],
+            dual_layer_classes
+        )
+
+    def _create_stream(self, dims, layer_classes, extra_layers=None):
+        layers = []
+
+        for i in range(len(layer_classes)):
+            layer_class = layer_classes[i]
+            layer = layer_class(dims[i], dims[i + 1])
+            layers.append(layer)
+
+            if i < len(layer_classes) - 1:
+                layers.append(nn.ReLU())
+
+            if layer_class == NoisyLinear:
+                self.noisy_layers.append(layer)
+
+        if extra_layers is not None:
+            layers += extra_layers
+
+        stream = nn.Sequential(*layers)
+        return stream
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.common_stream(x)
@@ -167,25 +209,28 @@ class DuelingQNet(AbstractNet):
         return value + advantage - advantage.mean()
 
     def reset_noise(self):
-        if not self.noisy:
-            return
-
-        for stream in [self.common_stream, self.value_stream, self.advantage_stream]:
-            for i in range(0, len(stream), 2):
-                stream[i].reset_noise()
+        for noisy_layer in self.noisy_layers:
+            noisy_layer.reset_noise()
 
 
 class DistNet(nn.Module):
-    def __init__(self, network_class: Type, support: torch.Tensor, algorithm_name: str, net_structure: tuple[int, ...], noisy: bool = False):
+    def __init__(
+            self,
+            network_class: Type,
+            support: torch.Tensor,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...]
+    ):
         super().__init__()
         self.support = support
         self.n_atoms = support.size(dim=0)
 
         state_size, *layers, action_size = net_structure
-        net_structure = (state_size, *layers, action_size * self.n_atoms)
+        net_structure = [state_size, *layers, action_size * self.n_atoms]
         self.action_size = action_size
 
-        self.network = network_class(algorithm_name, net_structure, noisy)
+        self.network = network_class(algorithm_name, net_structure, net_layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         dist = self.dist(x)
@@ -215,7 +260,7 @@ class DistNet(nn.Module):
 
 
 class PpoActorNet(ReluNet):
-    def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
         super().__init__('actor', algorithm_name, nn.Linear, net_structure)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -226,7 +271,7 @@ class PpoActorNet(ReluNet):
 
 
 class PpoCriticNet(ReluNet):
-    def __init__(self, algorithm_name, net_structure: tuple[int, ...]):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
         super().__init__('critic', algorithm_name, nn.Linear, net_structure)
 
 
@@ -246,7 +291,7 @@ class AbstractWolpNet(AbstractNet):
 
 
 class WolpActorNet(AbstractWolpNet):
-    def __init__(self, net_structure: tuple[int, ...], init_w=None):
+    def __init__(self, net_structure: list[int, ...], init_w=None):
         super().__init__('actor')
         self.layers = nn.ModuleList([
             nn.Linear(net_structure[layer], net_structure[layer + 1])
@@ -267,7 +312,7 @@ class WolpActorNet(AbstractWolpNet):
 
 
 class WolpCriticNet(AbstractWolpNet):
-    def __init__(self, net_structure: tuple[int, ...], init_w=None, action_dim=1):
+    def __init__(self, net_structure: list[int, ...], init_w=None, action_dim=1):
         super().__init__('critic')
 
         self.layers = nn.ModuleList([
