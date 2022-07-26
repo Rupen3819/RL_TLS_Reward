@@ -64,7 +64,6 @@ class RainbowDQNAgent:
             n_atoms (float):
             v_min (float):
             v_max (float):
-
         """
         self.state_size = state_size
         if fixed_action_space:
@@ -232,7 +231,8 @@ class RainbowDQNAgent:
 
         else:
             with torch.no_grad():
-                next_actions = self.target_q_network(next_states).argmax(1)
+                selection_q_network = self.local_q_network if self.double_q_learning else self.target_q_network
+                next_actions = selection_q_network(next_states).argmax(1)
                 next_dists = self.target_q_network.dist(next_states)[range(self.batch_size), next_actions]
 
                 t_z = rewards + (gamma * self.support * (1 - dones))
@@ -244,16 +244,16 @@ class RainbowDQNAgent:
                 lower_atoms = projected_atoms.floor().long()
                 upper_atoms = projected_atoms.ceil().long()
 
-                # Distribute the probability
-
                 dist_projection = torch.zeros(next_dists.size(), device=device)
 
+                # Distribute portion of probability to the closest lower atom
                 lower_indices = (lower_atoms + self.offset).view(-1)
                 lower_prob_weights = (next_dists * (upper_atoms.float() - projected_atoms)).view(-1)
                 dist_projection.view(-1).index_add_(
                     0, lower_indices, lower_prob_weights
                 )
 
+                # Distribute remaining portion of probability to the closest higher atom
                 upper_indices = (upper_atoms + self.offset).view(-1)
                 upper_prob_weights = (next_dists * (projected_atoms - lower_atoms.float())).view(-1)
                 dist_projection.view(-1).index_add_(
