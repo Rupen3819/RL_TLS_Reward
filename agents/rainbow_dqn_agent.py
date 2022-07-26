@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import QNet, DuelingQNet, DistNet, NoisyLinear
-from memory.replay import ReplayBuffer, NStepReplayBuffer, PrioritizedReplayBuffer
+from memory.replay import ReplayBuffer, PrioritizedReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -35,6 +35,7 @@ class RainbowDQNAgent:
             prioritized_replay: bool = True,
             alpha: float = 1.,
             beta: float = 1.,
+            priority_eps: float = 1e-6,
             n_atoms: int = 51,
             v_min: float = -1000,
             v_max: float = 0.
@@ -61,6 +62,7 @@ class RainbowDQNAgent:
             prioritized_replay (bool):
             alpha (float):
             beta (float):
+            priority_eps (float):
             n_atoms (float):
             v_min (float):
             v_max (float):
@@ -87,6 +89,7 @@ class RainbowDQNAgent:
         self.prioritized_replay = prioritized_replay
         self.alpha = alpha
         self.beta = beta
+        self.priority_eps = priority_eps
         self.n_atoms = n_atoms
         self.v_min = v_min
         self.v_max = v_max
@@ -120,7 +123,9 @@ class RainbowDQNAgent:
 
         # Initialize experience replay memory
         if self.prioritized_replay:
-            self.memory = PrioritizedReplayBuffer(self.buffer_size, self.batch_size, self.alpha, self.beta)
+            self.memory = PrioritizedReplayBuffer(
+                self.buffer_size, self.batch_size, self.alpha, self.beta, self.priority_eps
+            )
         else:
             self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 

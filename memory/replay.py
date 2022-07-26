@@ -67,11 +67,12 @@ class ReplayBuffer(AbstractReplayBuffer):
 
 
 class PrioritizedReplayBuffer:
-    def __init__(self, max_len: int, batch_size: int, alpha: float, beta: float):
+    def __init__(self, max_len: int, batch_size: int, alpha: float, beta: float, priority_eps: float):
         self.max_len = max_len
         self.batch_size = batch_size
         self.alpha = alpha
         self.beta = beta
+        self.priority_eps = priority_eps
 
         self.priority_sums = SumTree(self.max_len)
         self.priority_mins = MinTree(self.max_len)
@@ -142,7 +143,7 @@ class PrioritizedReplayBuffer:
         if self.last_batch_indices is None:
             raise RuntimeError()
 
-        new_priorities = new_priorities.abs()
+        new_priorities = new_priorities.abs() + self.priority_eps
         self.max_priority = max(self.max_priority, new_priorities.max().item())
         reduced_priorities = new_priorities ** self.alpha
 
