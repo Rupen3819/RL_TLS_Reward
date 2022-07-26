@@ -109,7 +109,7 @@ class RainbowDQNAgent:
                 ]
             else:
                 self.local_q_network, self.target_q_network = [
-                    DuelingQNet('rainbow_dqn', net_structure, net_layers, action_size).to(device)
+                    DuelingQNet('rainbow_dqn', net_structure, net_layers, self.n_atoms).to(device)
                     for _ in range(2)
                 ]
 

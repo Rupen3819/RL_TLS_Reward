@@ -123,7 +123,7 @@ class QNet(ReluNet):
             net_structure: list[int, ...],
             net_layers: list[Type, ...] = None
     ):
-        network_type = 'noisy_q_network' if self.noisy else 'q_network'
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
 
         if net_layers is None:
             net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
@@ -146,7 +146,7 @@ class DuelingQNet(AbstractNet):
             algorithm_name: str,
             net_structure: list[int, ...],
             net_layers: list[Type, ...],
-            action_size: int,
+            num_atoms: int = 1,
             num_dual_hidden_layers: bool = 1
     ):
         if len(net_structure) < 4:
@@ -160,6 +160,8 @@ class DuelingQNet(AbstractNet):
         super().__init__(network_type, algorithm_name)
 
         self.noisy_layers = []
+        self.num_atoms = num_atoms
+        self.action_size = net_structure[-1] // num_atoms
 
         num_common_hidden_layers = len(net_structure) - num_dual_hidden_layers - 1
         self.common_stream = self._create_stream(
@@ -172,7 +174,7 @@ class DuelingQNet(AbstractNet):
         dual_layer_classes = net_layers[-(num_dual_layers - 1):]
 
         self.value_stream = self._create_stream(
-            net_structure[-num_dual_layers: -1] + [net_structure[-1] // action_size],
+            net_structure[-num_dual_layers: -1] + [self.num_atoms],
             dual_layer_classes
         )
 
@@ -203,9 +205,15 @@ class DuelingQNet(AbstractNet):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.common_stream(x)
+
         value = self.value_stream(x)
         advantage = self.advantage_stream(x)
-        return value + advantage - advantage.mean()
+
+        if self.num_atoms > 1:
+            value = value.view(-1, 1, self.num_atoms)
+            advantage = advantage.view(-1, self.action_size, self.num_atoms)
+
+        return value + advantage - advantage.mean(dim=1, keepdim=True)
 
     def reset_noise(self):
         for noisy_layer in self.noisy_layers:
