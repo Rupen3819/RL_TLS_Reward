@@ -181,12 +181,12 @@ class DQNAgent:
         for target_param, local_param in zip(self.target_q_network.parameters(), self.local_q_network.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
-    def save_models(self, path):
+    def save_model(self, path):
         print('... saving model ...')
         self.local_q_network.save_checkpoint(path)
         print('... model saved successfully ...')
 
-    def load_models(self, path):
+    def load_model(self, path):
         print('... loading model ...')
         self.local_q_network.load_checkpoint(path)
         print('... model loaded successfully ...')

@@ -191,13 +191,13 @@ class MADQNAgent:
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
-    def save_models(self, path):
+    def save_model(self, path):
         print('... saving models ...')
         for agent_id, local_q_network in enumerate(self.local_q_networks):
             local_q_network.save_checkpoint(path, str(agent_id))
         print('... models saved successfully ...')
 
-    def load_models(self, path):
+    def load_model(self, path):
         print('... loading models ...')
         for agent_id, local_q_network in enumerate(self.local_q_networks):
             local_q_network.load_checkpoint(path, str(agent_id))

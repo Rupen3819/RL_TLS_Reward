@@ -227,14 +227,14 @@ class MAPPOAgent:
 
         self.memory.clear_memory()
     
-    def save_models(self, path):
+    def save_model(self, path):
         print('... saving models ...')
         for agent_id in range(self.num_agents):
             self.actors[agent_id].save_checkpoint(path, f'{agent_id}')
             self.critics[agent_id].save_checkpoint(path, f'{agent_id}')
         print('... models saved successfully')
 
-    def load_models(self, path):
+    def load_model(self, path):
         print('... loading models ...')
         for agent_id in range(self.num_agents):
             self.actors[agent_id].load_checkpoint(path, f'{agent_id}')

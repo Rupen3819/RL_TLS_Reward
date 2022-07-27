@@ -167,13 +167,13 @@ class PPOAgent:
 
         self.memory.clear_memory()
 
-    def save_models(self, path):
+    def save_model(self, path):
         print('... saving models ...')
         self.actor.save_checkpoint(path)
         self.critic.save_checkpoint(path)
         print('... models saved successfully ...')
 
-    def load_models(self, path):
+    def load_model(self, path):
         print('... loading models ...')
         self.actor.load_checkpoint(path)
         self.critic.load_checkpoint(path)
