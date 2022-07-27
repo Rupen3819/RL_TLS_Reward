@@ -43,7 +43,7 @@ class EpisodicTraining:
             print('Test results will be saved in:', plot_path)
             episode_start = self.n_episodes + 1
             episode_end = self.n_episodes + self.TEST_EPISODES + 1
-            self.agent.load_models(test_model_path)
+            self.agent.load_model(test_model_path)
 
         for i_episode in range(episode_start, episode_end):
             self.env.generate_traffic(seed=i_episode)
@@ -71,7 +71,7 @@ class EpisodicTraining:
 
         if is_train and not os.path.exists(model_path):
             os.makedirs(model_path)
-            self.agent.save_models(model_path)
+            self.agent.save_model(model_path)
 
         self.env.reset()
         self.env.close()
