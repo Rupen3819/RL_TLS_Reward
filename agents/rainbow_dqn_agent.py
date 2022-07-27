@@ -10,6 +10,7 @@ from model import QNet, DuelingQNet, DistNet, NoisyLinear
 from memory.replay import ReplayBuffer, PrioritizedReplayBuffer, NStepReplayBuffer
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+AGENT_NAME = 'rainbow_dqn'
 
 
 class RainbowDQNAgent:
@@ -104,15 +105,14 @@ class RainbowDQNAgent:
         if not self.dist_learning:
             if not self.dueling_net:
                 self.local_q_network, self.target_q_network = [
-                    QNet('rainbow_dqn', net_structure, net_layers).to(device)
+                    QNet(AGENT_NAME, net_structure, net_layers).to(device)
                     for _ in range(2)
                 ]
             else:
                 self.local_q_network, self.target_q_network = [
-                    DuelingQNet('rainbow_dqn', net_structure, net_layers, self.n_atoms).to(device)
+                    DuelingQNet(AGENT_NAME, net_structure, net_layers, self.n_atoms).to(device)
                     for _ in range(2)
                 ]
-
         else:
             self.support = torch.linspace(self.v_min, self.v_max, self.n_atoms).to(device)
             self.delta_z = (self.v_max - self.v_min) / (self.n_atoms - 1)
@@ -121,11 +121,12 @@ class RainbowDQNAgent:
             ).long().unsqueeze(1).expand(self.batch_size, self.n_atoms).to(device)
 
             self.local_q_network, self.target_q_network = [
-                DistNet('rainbow_dqn', net_structure, net_layers, self.support, self.dueling_net).to(device)
+                DistNet(AGENT_NAME, net_structure, net_layers, self.support, self.dueling_net).to(device)
                 for _ in range(2)
             ]
-
         print(self.local_q_network)
+
+        # Initialize optimizer
         self.optimizer = optim.Adam(self.local_q_network.parameters(), lr=learning_rate)
 
         # Initialize experience replay memory
@@ -143,7 +144,7 @@ class RainbowDQNAgent:
         # Initialize time step (for updating every update_interval steps)
         self.t_step = 0
 
-    def one_hot_state(self, index, state):
+    def _one_hot_state(self, index, state):
         one_hot = np.zeros(len(self.traffic_lights))
         np.put(one_hot, index, 1)
         state_one_hot = np.array(one_hot.tolist() + state)
@@ -155,8 +156,8 @@ class RainbowDQNAgent:
         # Save experience in replay memory
         if self.fixed_action_space:
             for index, traffic_light_id in enumerate(self.traffic_lights):
-                state_one_hot = self.one_hot_state(index, state)
-                next_state_one_hot = self.one_hot_state(index, next_state)
+                state_one_hot = self._one_hot_state(index, state)
+                next_state_one_hot = self._one_hot_state(index, next_state)
                 self.memory.add(state_one_hot, action[traffic_light_id], reward, next_state_one_hot, done)
         else:
             self.memory.add(state, action, reward, next_state, done)
@@ -183,7 +184,7 @@ class RainbowDQNAgent:
             action_values = {}
 
             for index, traffic_light_id in enumerate(self.traffic_lights):
-                state_one_hot = self.one_hot_state(index, state.tolist())
+                state_one_hot = self._one_hot_state(index, state.tolist())
                 action_value_list, action = self.choose_action(state_one_hot, eps)
                 action_values[traffic_light_id] = action_value_list
                 actions[traffic_light_id] = action
@@ -218,64 +219,11 @@ class RainbowDQNAgent:
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
-        if self.prioritized_replay:
-            states, actions, rewards, next_states, dones, weights = experiences
+        # Compute the loss
+        if self.dist_learning:
+            loss = self._compute_dist_return_loss(experiences, gamma)
         else:
-            states, actions, rewards, next_states, dones = experiences
-
-        if not self.dist_learning:
-            # Get max predicted Q values (for next states) from target model
-            q_targets_next = self.compute_next_q_targets(next_states)
-
-            # Compute Q targets for current states
-            q_targets = rewards + (gamma * q_targets_next * (1 - dones))
-
-            # Get expected Q values from local model
-            q_expected = self.local_q_network(states).gather(1, actions)
-
-            # Compute loss
-            if self.prioritized_replay:
-                new_priorities = q_targets - q_expected
-                self.memory.update_priorities(new_priorities)
-                loss = torch.mean((weights * new_priorities) ** 2)
-            else:
-                loss = F.mse_loss(q_expected, q_targets)
-
-        else:
-            with torch.no_grad():
-                selection_q_network = self.local_q_network if self.double_q_learning else self.target_q_network
-                next_actions = selection_q_network(next_states).argmax(1)
-                next_dists = self.target_q_network.dist(next_states)[range(self.batch_size), next_actions]
-
-                t_z = rewards + (gamma * self.support * (1 - dones))
-
-                # Constrain to between the min and max atoms
-                t_z = t_z.clamp(self.v_min, self.v_max)
-
-                projected_atoms = (t_z - self.v_min) / self.delta_z
-                lower_atoms = projected_atoms.floor().long()
-                upper_atoms = projected_atoms.ceil().long()
-
-                dist_projection = torch.zeros(next_dists.size(), device=device)
-
-                # Distribute portion of probability to the closest lower atom
-                lower_indices = (lower_atoms + self.offset).view(-1)
-                lower_prob_weights = (next_dists * (upper_atoms.float() - projected_atoms)).view(-1)
-                dist_projection.view(-1).index_add_(
-                    0, lower_indices, lower_prob_weights
-                )
-
-                # Distribute remaining portion of probability to the closest higher atom
-                upper_indices = (upper_atoms + self.offset).view(-1)
-                upper_prob_weights = (next_dists * (projected_atoms - lower_atoms.float())).view(-1)
-                dist_projection.view(-1).index_add_(
-                    0, upper_indices, upper_prob_weights
-                )
-
-            # Compute the cross-entropy loss
-            dist = self.local_q_network.dist(states)
-            log_prob = torch.log(dist[range(self.batch_size), actions])
-            loss = -(dist_projection * log_prob).sum(dim=1).mean()
+            loss = self._compute_expected_return_loss(experiences, gamma)
 
         # Minimize the loss
         self.optimizer.zero_grad()
@@ -285,18 +233,94 @@ class RainbowDQNAgent:
         # Update target network
         self.soft_update(self.tau)
 
+        # Reset the noise for noisy layers in the networks
         if self.noisy_net:
             self.local_q_network.reset_noise()
             self.target_q_network.reset_noise()
 
-    def compute_next_q_targets(self, next_states):
+    def _unpack_experiences(self, experiences):
+        if self.prioritized_replay:
+            states, actions, rewards, next_states, dones, weights = experiences
+        else:
+            states, actions, rewards, next_states, dones = experiences
+            weights = None
+
+        return states, actions, rewards, next_states, dones, weights
+
+    def _compute_expected_return_loss(self, experiences, gamma):
+        states, actions, rewards, next_states, dones, weights = self._unpack_experiences(experiences)
+
+        # Get max predicted Q values (for next states) from target model
         if self.double_q_learning:
             local_argmax_states = self.local_q_network(next_states).detach().argmax(1)
-            return self.target_q_network(next_states).detach()[
+            q_targets_next = self.target_q_network(next_states).detach()[
                 torch.arange(self.batch_size), local_argmax_states
             ].unsqueeze(1)
         else:
-            return self.target_q_network(next_states).detach().max(1)[0].unsqueeze(1)
+            q_targets_next = self.target_q_network(next_states).detach().max(1)[0].unsqueeze(1)
+
+        # Compute Q targets for current states
+        q_targets = rewards + (gamma * q_targets_next * (1 - dones))
+
+        # Get expected Q values from local model
+        q_expected = self.local_q_network(states).gather(1, actions)
+
+        # Compute loss
+        if self.prioritized_replay:
+            new_priorities = q_targets - q_expected
+            self.memory.update_priorities(new_priorities)
+            loss = torch.mean((weights * new_priorities) ** 2)
+        else:
+            loss = F.mse_loss(q_expected, q_targets)
+
+        return loss
+
+    def _compute_dist_return_loss(self, experiences, gamma):
+        states, actions, rewards, next_states, dones, weights = self._unpack_experiences(experiences)
+
+        with torch.no_grad():
+            selection_q_network = self.local_q_network if self.double_q_learning else self.target_q_network
+            next_actions = selection_q_network(next_states).argmax(1)
+            next_dists = self.target_q_network.dist(next_states)[range(self.batch_size), next_actions]
+
+            t_z = rewards + (gamma * self.support * (1 - dones))
+
+            # Constrain to between the min and max atoms
+            t_z = t_z.clamp(self.v_min, self.v_max)
+
+            projected_atoms = (t_z - self.v_min) / self.delta_z
+            lower_atoms = projected_atoms.floor().long()
+            upper_atoms = projected_atoms.ceil().long()
+
+            dist_projection = torch.zeros(next_dists.size(), device=device)
+
+            # Distribute portion of probability to the closest lower atom
+            lower_indices = (lower_atoms + self.offset).view(-1)
+            lower_prob_weights = (next_dists * (upper_atoms.float() - projected_atoms)).view(-1)
+            dist_projection.view(-1).index_add_(
+                0, lower_indices, lower_prob_weights
+            )
+
+            # Distribute remaining portion of probability to the closest higher atom
+            upper_indices = (upper_atoms + self.offset).view(-1)
+            upper_prob_weights = (next_dists * (projected_atoms - lower_atoms.float())).view(-1)
+            dist_projection.view(-1).index_add_(
+                0, upper_indices, upper_prob_weights
+            )
+
+        # Compute the cross-entropy loss
+        dist = self.local_q_network.dist(states)
+        log_prob = torch.log(dist[range(self.batch_size), actions])
+        elementwise_loss = -(dist_projection * log_prob).sum(dim=1)
+
+        if self.prioritized_replay:
+            new_priorities = elementwise_loss.detach().view(-1, 1)
+            self.memory.update_priorities(new_priorities)
+            loss = torch.mean(weights * elementwise_loss)
+        else:
+            loss = elementwise_loss.mean()
+
+        return loss
 
     def soft_update(self, tau: float):
         """
