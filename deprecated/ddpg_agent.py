@@ -144,12 +144,12 @@ class DDPGAgent():
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(local_param.data)
 
-    def save_models(self, path):
+    def save_model(self, path):
         print('... saving models ...')
         self.actor_local.save_checkpoint(path)
         self.critic_local.save_checkpoint(path)
 
-    def load_models(self, path):
+    def load_model(self, path):
         print('... loading models ...')
         self.actor_local.load_checkpoint(path)
         self.critic_local.load_checkpoint(path)
