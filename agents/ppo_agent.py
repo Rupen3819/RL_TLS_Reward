@@ -100,7 +100,7 @@ class PPOAgent:
         # Learn every update_interval time steps.
         self.t_step += 1
         if self.t_step % self.learning_interval == 0:
-            self.learn()
+            self._learn()
 
     def act(self, observation):
         if self.fixed_action_space:
@@ -129,37 +129,36 @@ class PPOAgent:
 
         return action, value, log_prob
 
-    def learn(self):
+    def _learn(self):
         for _ in range(self.n_epochs):
-            state_arr, action_arr, rewards, dones, value_arr, old_prob_arr, batches = self.memory.generate_batches()
+            states, actions, rewards, dones, values, log_probs, batches = self.memory.generate_batches()
 
-            values = value_arr
             advantages = np.zeros(len(rewards), dtype=np.float32)
 
             for t in range(len(rewards) - 1):
                 discount = 1
-                a_t = 0
+                advantage = 0
+
                 for k in range(t, len(rewards) - 1):
-                    a_t += discount * (rewards[k] + self.gamma * values[k + 1] *
-                                       (1 - int(dones[k])) - values[k])
+                    advantage += discount * (rewards[k] + self.gamma * values[k + 1] * (1 - int(dones[k])) - values[k])
                     discount *= self.gamma * self.gae_lambda
-                advantages[t] = a_t
+
+                advantages[t] = advantage
 
             advantages = torch.tensor(advantages).to(device)
             values = torch.tensor(values).to(device)
 
             for batch in batches:
-                states = torch.tensor(state_arr[batch], dtype=torch.float).to(device)
-                old_probs = torch.tensor(old_prob_arr[batch]).to(device)
-                actions = torch.tensor(action_arr[batch]).to(device)
+                states_batch = torch.tensor(states[batch], dtype=torch.float).to(device)
+                actions_batch = torch.tensor(actions[batch]).to(device)
+                log_probs_batch = torch.tensor(log_probs[batch]).to(device)
 
-                dist = self.actor(states)
-                critic_value = self.critic(states)
+                dist = self.actor(states_batch)
+                critic_value = self.critic(states_batch)
                 critic_value = torch.squeeze(critic_value)
 
-                new_probs = dist.log_prob(actions)
-                prob_ratio = new_probs.exp() / old_probs.exp()
-                # prob_ratio = (new_probs - old_probs).exp()
+                new_log_probs_batch = dist.log_prob(actions_batch)
+                prob_ratio = (new_log_probs_batch - log_probs_batch).exp()
                 weighted_probs = advantages[batch] * prob_ratio
                 weighted_clipped_probs = torch.clamp(
                     prob_ratio, 1 - self.policy_clip, 1 + self.policy_clip
@@ -167,8 +166,7 @@ class PPOAgent:
                 actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
 
                 returns = advantages[batch] + values[batch]
-                critic_loss = (returns - critic_value) ** 2
-                critic_loss = critic_loss.mean()
+                critic_loss = ((returns - critic_value) ** 2).mean()
 
                 total_loss = actor_loss + 0.5 * critic_loss
 

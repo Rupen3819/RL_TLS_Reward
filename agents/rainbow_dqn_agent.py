@@ -29,6 +29,7 @@ class RainbowDQNAgent:
             tau: float = 1e-3,
             learning_rate: float = 5e-4,
             update_interval: int = 4,
+
             double_q_learning: bool = True,
             n_step_bootstrapping: int = 1,
             noisy_net: bool = True,
@@ -168,7 +169,7 @@ class RainbowDQNAgent:
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > self.batch_size:
                 experiences = self.memory.sample()
-                self.learn(experiences, self.gamma)
+                self._learn(experiences, self.gamma)
 
     def act(self, state, eps=0.):
         """
@@ -185,15 +186,15 @@ class RainbowDQNAgent:
 
             for index, traffic_light_id in enumerate(self.traffic_lights):
                 state_one_hot = self._one_hot_state(index, state.tolist())
-                action_value_list, action = self.choose_action(state_one_hot, eps)
+                action_value_list, action = self._choose_action(state_one_hot, eps)
                 action_values[traffic_light_id] = action_value_list
                 actions[traffic_light_id] = action
 
             return action_values, actions
         else:
-            return self.choose_action(state, eps)
+            return self._choose_action(state, eps)
 
-    def choose_action(self, state, eps):
+    def _choose_action(self, state, eps):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
 
         self.local_q_network.eval()
@@ -210,7 +211,7 @@ class RainbowDQNAgent:
 
         return action_values.tolist(), action
 
-    def learn(self, experiences, gamma: float):
+    def _learn(self, experiences, gamma: float):
         """
         Update value parameters using given batch of experience tuples.
 
@@ -231,7 +232,7 @@ class RainbowDQNAgent:
         self.optimizer.step()
 
         # Update target network
-        self.soft_update(self.tau)
+        self._soft_update(self.tau)
 
         # Reset the noise for noisy layers in the networks
         if self.noisy_net:
@@ -322,7 +323,7 @@ class RainbowDQNAgent:
 
         return loss
 
-    def soft_update(self, tau: float):
+    def _soft_update(self, tau: float):
         """
         Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target

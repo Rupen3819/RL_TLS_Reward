@@ -88,7 +88,7 @@ class DQNAgent:
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > self.batch_size:
                 experiences = self.memory.sample()
-                self.learn(experiences, self.gamma)
+                self._learn(experiences, self.gamma)
 
     def act(self, state, eps=0.):
         """
@@ -135,7 +135,7 @@ class DQNAgent:
             else:
                 return action_values.tolist(), random.choice(np.arange(self.action_size))
 
-    def learn(self, experiences, gamma: float):
+    def _learn(self, experiences, gamma: float):
         """
         Update value parameters using given batch of experience tuples.
 
@@ -165,9 +165,9 @@ class DQNAgent:
         self.optimizer.step()
 
         # Update target network
-        self.soft_update(self.tau)
+        self._soft_update(self.tau)
 
-    def soft_update(self, tau: float):
+    def _soft_update(self, tau: float):
         """
         Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
