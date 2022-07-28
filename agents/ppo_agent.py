@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from memory.replay import PPOMemory
+from memory.replay import BatchMemory
 from model import PpoActorNet, PpoCriticNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -10,9 +10,19 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class PPOAgent:
     def __init__(
-            self, state_size: int, action_size: int, actor_dim: tuple[int, ...], critic_dim: tuple[int, ...],
-            fixed_action_space: bool, traffic_lights: dict[str, str], batch_size: int = 256, n_epochs: int = 10,
-            policy_clip: float = 0.1, gamma: float = 0.99, gae_lambda: float = 0.95, policy_learning_rate: float = 1e-4,
+            self,
+            state_size: int,
+            action_size: int,
+            actor_dim: tuple[int, ...],
+            critic_dim: tuple[int, ...],
+            fixed_action_space: bool,
+            traffic_lights: dict[str, str] = None,
+            batch_size: int = 256,
+            n_epochs: int = 10,
+            policy_clip: float = 0.1,
+            gamma: float = 0.99,
+            gae_lambda: float = 0.95,
+            policy_learning_rate: float = 1e-4,
             critic_learning_rate: float = 1e-3
     ):
         """
@@ -40,8 +50,8 @@ class PPOAgent:
             self.state_size += len(traffic_lights)
 
         self.action_size = action_size
-        self.fixed_action_space = fixed_action_space
 
+        self.fixed_action_space = fixed_action_space
         self.traffic_lights = traffic_lights
 
         self.batch_size = batch_size
@@ -52,76 +62,67 @@ class PPOAgent:
         self.policy_learning_rate = policy_learning_rate
         self.critic_learning_rate = critic_learning_rate
 
-        print(actor_dim)
-        actor_dim = (self.state_size, actor_dim[0], actor_dim[1], self.action_size)
+        actor_dim = (self.state_size, *actor_dim, self.action_size)
         self.actor = PpoActorNet('ppo', actor_dim).to(device)
         print(self.actor)
 
-        print(critic_dim)
-        critic_dim = (self.state_size, critic_dim[0], critic_dim[1], 1)
+        critic_dim = (self.state_size, *critic_dim, 1)
         self.critic = PpoCriticNet('ppo', critic_dim).to(device)
         print(self.critic)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=policy_learning_rate)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_learning_rate)
 
-        self.memory = PPOMemory(self.batch_size)
+        self.memory = BatchMemory(self.batch_size)
 
-    def remember(self, state, action, probs, values, reward, done):
+    def _one_hot_state(self, index, state):
+        one_hot = np.zeros(len(self.traffic_lights))
+        np.put(one_hot, index, 1)
+        state_one_hot = list(np.array(one_hot.tolist() + state))
+        return state_one_hot
+
+    def remember(self, state, action, reward, done, value, log_prob):
         reward = sum(reward.values())
 
         if self.fixed_action_space:
-            for index, traffic_light_id in enumerate(self.traffic_lights):
-                one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, index, 1)
-                state_one_hot = list(np.array(one_hot.tolist() + state))
-
-                self.memory.store_memory(
-                    state_one_hot, action[traffic_light_id], probs[traffic_light_id], values[traffic_light_id], reward, done
-                )
+            for index, light_id in enumerate(self.traffic_lights):
+                state_one_hot = self._one_hot_state(index, state)
+                self.memory.store(state_one_hot, action[light_id], reward, done, value[light_id], log_prob[light_id])
         else:
-            self.memory.store_memory(state, action, probs, values, reward, done)
+            self.memory.store(state, action, reward, done, value, log_prob)
 
     def choose_action(self, observation):
-        if self.fixed_action_space:
-            actions = dict.fromkeys(self.traffic_lights, 0)
-            probs = dict.fromkeys(self.traffic_lights, 0)
-            values = dict.fromkeys(self.traffic_lights, 0)
-
-            for index, traffic_light_id in enumerate(self.traffic_lights):
-                one_hot = np.zeros(len(self.traffic_lights))
-                np.put(one_hot, index, 1)
-                state_one_hot = list(np.array(one_hot.tolist() + observation))
-                state_one_hot = torch.tensor([state_one_hot], dtype=torch.float).to(device)
-
-                dist = self.actor(state_one_hot)
-                value = self.critic(state_one_hot)
-                action = dist.sample()
-
-                probs[traffic_light_id] = torch.squeeze(dist.log_prob(action)).item()
-                actions[traffic_light_id] = torch.squeeze(action).item()
-                values[traffic_light_id] = torch.squeeze(value).item()
-
-            return actions, probs, values
-
-        else:
-            state = torch.tensor([observation], dtype=torch.float).to(device)
-
+        def compute_action(state):
             dist = self.actor(state)
             value = self.critic(state)
             action = dist.sample()
 
-            probs = torch.squeeze(dist.log_prob(action)).item()
-            action = torch.squeeze(action).item()
+            log_prob = torch.squeeze(dist.log_prob(action)).item()
             value = torch.squeeze(value).item()
+            action = torch.squeeze(action).item()
 
-            return action, probs, value
+            return action, value, log_prob
+
+        if self.fixed_action_space:
+            actions = {}
+            values = {}
+            log_probs = {}
+
+            for index, light_id in enumerate(self.traffic_lights):
+                state_one_hot = torch.tensor([self._one_hot_state(index, observation)], dtype=torch.float).to(device)
+                actions[light_id], values[light_id], log_probs[light_id],  = compute_action(state_one_hot)
+
+            return actions, values, log_probs
+
+        else:
+            state = torch.tensor([observation], dtype=torch.float).to(device)
+            return compute_action(state)
 
     def learn(self):
         for _ in range(self.n_epochs):
-            state_arr, action_arr, old_prob_arr, vals_arr, rewards, dones, batches = self.memory.generate_batches()
+            state_arr, action_arr, rewards, dones, value_arr, old_prob_arr, batches = self.memory.generate_batches()
 
-            values = vals_arr
+            values = value_arr
             advantages = np.zeros(len(rewards), dtype=np.float32)
 
             for t in range(len(rewards) - 1):
@@ -159,22 +160,24 @@ class PPOAgent:
                 critic_loss = critic_loss.mean()
 
                 total_loss = actor_loss + 0.5 * critic_loss
+
+                # Minimize the loss
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
                 total_loss.backward()
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
 
-        self.memory.clear_memory()
+        self.memory.reset()
 
     def save_model(self, path):
-        print('... saving models ...')
+        print('Saving model')
         self.actor.save_checkpoint(path)
         self.critic.save_checkpoint(path)
-        print('... models saved successfully ...')
+        print('Model saved successfully')
 
     def load_model(self, path):
-        print('... loading models ...')
+        print('Loading model')
         self.actor.load_checkpoint(path)
         self.critic.load_checkpoint(path)
-        print('... models loaded successfully')
+        print('Model loaded successfully')

@@ -7,10 +7,11 @@ import torch
 
 from memory.structures import MinTree, SumTree, RingBuffer
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-Experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-MultiExperience = namedtuple("MultiExperience", field_names=["states", "actions", "reward", "next_states", "done"])
+Experience = namedtuple('Experience', field_names=['state', 'action', 'reward', 'next_state', 'done'])
+MultiExperience = namedtuple('MultiExperience', field_names=['states', 'actions', 'reward', 'next_states', 'done'])
+PpoExperience = namedtuple('PpoExperience', field_names=['state', 'action', 'reward', 'done', 'value', 'log_prob'])
 
 
 class AbstractReplayBuffer:
@@ -248,44 +249,24 @@ class MultiSequentialMemory:
         return states, actions, rewards, next_states, dones
 
 
-class PPOMemory:
+class BatchMemory:
     def __init__(self, batch_size):
-        self.states = []
-        self.probs = []
-        self.vals = []
-        self.actions = []
-        self.rewards = []
-        self.dones = []
-
+        self.experiences = []
         self.batch_size = batch_size
 
+    def store(self, state, action, reward, done, values, probs):
+        experience = PpoExperience(state, action, reward, done, values, probs)
+        self.experiences.append(experience)
+
+    def reset(self):
+        self.experiences = []
+
     def generate_batches(self):
-        n_states = len(self.states)
-        batch_start = np.arange(0, n_states, self.batch_size)
-        indices = np.arange(n_states, dtype=np.int64)
+        indices = np.arange(len(self.experiences), dtype=np.int64)
         np.random.shuffle(indices)
-        batches = [indices[i:i + self.batch_size] for i in batch_start]
+        batches = [
+            indices[i : i + self.batch_size]
+            for i in range(0, len(self.experiences), self.batch_size)
+        ]
 
-        return np.array(self.states), \
-               np.array(self.actions), \
-               np.array(self.probs), \
-               np.array(self.vals), \
-               np.array(self.rewards), \
-               np.array(self.dones), \
-               batches
-
-    def store_memory(self, state, action, probs, vals, reward, done):
-        self.states.append(state)
-        self.actions.append(action)
-        self.probs.append(probs)
-        self.vals.append(vals)
-        self.rewards.append(reward)
-        self.dones.append(done)
-
-    def clear_memory(self):
-        self.states = []
-        self.probs = []
-        self.actions = []
-        self.rewards = []
-        self.dones = []
-        self.vals = []
+        return *map(np.array, zip(*self.experiences)), batches

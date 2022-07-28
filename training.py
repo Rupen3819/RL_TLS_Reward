@@ -139,11 +139,11 @@ class PPOTraining(EpisodicTraining):
         score = 0
 
         for t in range(self.max_t):
-            action, prob, val = self.agent.choose_action(state)
+            action, value, log_prob = self.agent.choose_action(state)
             next_state, reward, done, _ = self.env.step(action)
 
             if is_train:
-                self.agent.remember(state, action, prob, val, reward, done)
+                self.agent.remember(state, action, reward, done, value, log_prob)
                 if t % self.LEARN_EVERY == 0:
                     self.agent.learn()
             state = next_state

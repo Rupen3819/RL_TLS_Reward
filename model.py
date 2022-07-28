@@ -101,9 +101,13 @@ class ReluNet(AbstractNet):
             network_type: str,
             algorithm_name: str,
             net_structure: list[int, ...],
-            net_layers: list[Type, ...]
+            net_layers: list[Type, ...] = None
     ):
         super().__init__(network_type, algorithm_name)
+
+        if net_layers is None:
+            net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
+
         self.layers = nn.ModuleList([
             net_layers[layer](net_structure[layer], net_structure[layer + 1])
             for layer in range(len(net_structure) - 1)
@@ -272,7 +276,7 @@ class DistNet(nn.Module):
 
 class PpoActorNet(ReluNet):
     def __init__(self, algorithm_name, net_structure: list[int, ...]):
-        super().__init__('actor', algorithm_name, nn.Linear, net_structure)
+        super().__init__('actor', algorithm_name, net_structure)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = super().forward(x)
@@ -283,7 +287,7 @@ class PpoActorNet(ReluNet):
 
 class PpoCriticNet(ReluNet):
     def __init__(self, algorithm_name, net_structure: list[int, ...]):
-        super().__init__('critic', algorithm_name, nn.Linear, net_structure)
+        super().__init__('critic', algorithm_name, net_structure)
 
 
 class AbstractWolpNet(AbstractNet):
