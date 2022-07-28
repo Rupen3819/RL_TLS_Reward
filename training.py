@@ -123,8 +123,6 @@ class DQNTraining(EpisodicTraining):
 
 
 class PPOTraining(EpisodicTraining):
-    LEARN_EVERY = 64
-
     def __init__(
             self,
             agent,
@@ -139,15 +137,15 @@ class PPOTraining(EpisodicTraining):
         score = 0
 
         for t in range(self.max_t):
-            action, value, log_prob = self.agent.choose_action(state)
+            action, value, log_prob = self.agent.act(state)
             next_state, reward, done, _ = self.env.step(action)
 
             if is_train:
-                self.agent.remember(state, action, reward, done, value, log_prob)
-                if t % self.LEARN_EVERY == 0:
-                    self.agent.learn()
+                self.agent.step(state, action, reward, done, value, log_prob)
+
             state = next_state
-            score += sum(list(reward.values()))
+            score += sum(reward.values())
+
             if done:
                 break
 

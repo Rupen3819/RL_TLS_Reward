@@ -103,6 +103,7 @@ _settings = {
             'gae_lambda': float,
             'policy_clip': float,
             'n_epochs': int,
+            'learning_interval': int,
         },
 
         'dir': {

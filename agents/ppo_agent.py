@@ -13,8 +13,8 @@ class PPOAgent:
             self,
             state_size: int,
             action_size: int,
-            actor_dim: tuple[int, ...],
-            critic_dim: tuple[int, ...],
+            actor_dim: list[int, ...],
+            critic_dim: list[int, ...],
             fixed_action_space: bool,
             traffic_lights: dict[str, str] = None,
             batch_size: int = 256,
@@ -23,7 +23,8 @@ class PPOAgent:
             gamma: float = 0.99,
             gae_lambda: float = 0.95,
             policy_learning_rate: float = 1e-4,
-            critic_learning_rate: float = 1e-3
+            critic_learning_rate: float = 1e-3,
+            learning_interval: int = 64
     ):
         """
         Initialize MADQN Agent object.
@@ -43,6 +44,7 @@ class PPOAgent:
             gae_lambda (float): factor for trade-off of bias vs variance for Generalized Advantage Estimator
             policy_learning_rate (float): policy net learning rate
             critic_learning_rate (float): critic net learning rate
+            learning_interval (int): how often to learn from experiences
         """
 
         self.state_size = state_size
@@ -61,6 +63,7 @@ class PPOAgent:
         self.gae_lambda = gae_lambda
         self.policy_learning_rate = policy_learning_rate
         self.critic_learning_rate = critic_learning_rate
+        self.learning_interval = learning_interval
 
         actor_dim = (self.state_size, *actor_dim, self.action_size)
         self.actor = PpoActorNet('ppo', actor_dim).to(device)
@@ -75,15 +78,18 @@ class PPOAgent:
 
         self.memory = BatchMemory(self.batch_size)
 
+        self.t_step = 0
+
     def _one_hot_state(self, index, state):
         one_hot = np.zeros(len(self.traffic_lights))
         np.put(one_hot, index, 1)
         state_one_hot = list(np.array(one_hot.tolist() + state))
         return state_one_hot
 
-    def remember(self, state, action, reward, done, value, log_prob):
+    def step(self, state, action, reward, done, value, log_prob):
         reward = sum(reward.values())
 
+        # Save experience in batch memory
         if self.fixed_action_space:
             for index, light_id in enumerate(self.traffic_lights):
                 state_one_hot = self._one_hot_state(index, state)
@@ -91,18 +97,12 @@ class PPOAgent:
         else:
             self.memory.store(state, action, reward, done, value, log_prob)
 
-    def choose_action(self, observation):
-        def compute_action(state):
-            dist = self.actor(state)
-            value = self.critic(state)
-            action = dist.sample()
+        # Learn every update_interval time steps.
+        self.t_step += 1
+        if self.t_step % self.learning_interval == 0:
+            self.learn()
 
-            log_prob = torch.squeeze(dist.log_prob(action)).item()
-            value = torch.squeeze(value).item()
-            action = torch.squeeze(action).item()
-
-            return action, value, log_prob
-
+    def act(self, observation):
         if self.fixed_action_space:
             actions = {}
             values = {}
@@ -110,13 +110,24 @@ class PPOAgent:
 
             for index, light_id in enumerate(self.traffic_lights):
                 state_one_hot = torch.tensor([self._one_hot_state(index, observation)], dtype=torch.float).to(device)
-                actions[light_id], values[light_id], log_probs[light_id],  = compute_action(state_one_hot)
+                actions[light_id], values[light_id], log_probs[light_id],  = self._choose_action(state_one_hot)
 
             return actions, values, log_probs
 
         else:
             state = torch.tensor([observation], dtype=torch.float).to(device)
-            return compute_action(state)
+            return self._choose_action(state)
+
+    def _choose_action(self, state):
+        dist = self.actor(state)
+        value = self.critic(state)
+        action = dist.sample()
+
+        log_prob = torch.squeeze(dist.log_prob(action)).item()
+        value = torch.squeeze(value).item()
+        action = torch.squeeze(action).item()
+
+        return action, value, log_prob
 
     def learn(self):
         for _ in range(self.n_epochs):

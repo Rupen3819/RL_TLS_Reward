@@ -52,7 +52,8 @@ match agent_type:
         agent = PPOAgent(
             env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
             env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
-            config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate']
+            config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate'],
+            config['learning_interval']
         )
         scores, training_times = PPOTraining(agent, env, 'ppo').train(is_train=is_train)
 
