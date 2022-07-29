@@ -59,10 +59,10 @@ class MADQNAgent:
 
         # Q-Networks
         print(hidden_dim)
-        hidden_dim = (self.state_size, hidden_dim[0], hidden_dim[1], self.action_size)
+        net_structure = [self.state_size, *hidden_dim, self.action_size]
 
-        self.local_q_networks = [QNet('madqn', hidden_dim).to(device) for _ in range(self.num_agents)]
-        self.target_q_networks = [QNet('madqn', hidden_dim).to(device) for _ in range(self.num_agents)]
+        self.local_q_networks = [QNet('madqn', net_structure).to(device) for _ in range(self.num_agents)]
+        self.target_q_networks = [QNet('madqn', net_structure).to(device) for _ in range(self.num_agents)]
         print(self.local_q_networks)
 
         self.optimizers = [optim.Adam(net.parameters(), lr=learning_rate) for net in self.local_q_networks]
@@ -97,7 +97,7 @@ class MADQNAgent:
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > self.batch_size:
                 experiences = self.memory.sample()
-                self.learn(experiences, self.gamma)
+                self._learn(experiences, self.gamma)
 
     def act(self, state, eps=0.):
         """
@@ -137,7 +137,7 @@ class MADQNAgent:
 
         return actions_values, actions
 
-    def learn(self, experiences, gamma):
+    def _learn(self, experiences, gamma):
         """
         Update value parameters using given batch of experience tuples.
 
@@ -176,9 +176,9 @@ class MADQNAgent:
             self.optimizers[agent_id].step()
 
             # Update target network
-            self.soft_update(self.local_q_networks[agent_id], self.target_q_networks[agent_id], self.tau)
+            self._soft_update(self.local_q_networks[agent_id], self.target_q_networks[agent_id], self.tau)
 
-    def soft_update(self, local_model, target_model, tau):
+    def _soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
 
@@ -192,13 +192,13 @@ class MADQNAgent:
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def save_model(self, path):
-        print('... saving models ...')
+        print('Saving model')
         for agent_id, local_q_network in enumerate(self.local_q_networks):
             local_q_network.save_checkpoint(path, str(agent_id))
-        print('... models saved successfully ...')
+        print('Model saved successfully')
 
     def load_model(self, path):
-        print('... loading models ...')
+        print('Load model')
         for agent_id, local_q_network in enumerate(self.local_q_networks):
             local_q_network.load_checkpoint(path, str(agent_id))
-        print('... models loaded successfully ...')
+        print('Model loaded successfully')

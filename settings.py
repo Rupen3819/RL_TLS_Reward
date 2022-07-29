@@ -163,7 +163,6 @@ def _parse_config_file(config_file, options, is_train_config):
     _overwrite_config_with_options(config, options)
 
     # Handle the multi-agent and single agent cases
-    print(config['agent_type'], 'agent type')
     if config['agent_type'].is_multi():
         config['single_agent'] = False
         config['fixed_action_space'] = False

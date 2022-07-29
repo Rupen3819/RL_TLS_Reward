@@ -127,11 +127,10 @@ class QNet(ReluNet):
             net_structure: list[int, ...],
             net_layers: list[Type, ...] = None
     ):
-        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
-
         if net_layers is None:
             net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
 
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
         super().__init__(network_type, algorithm_name, net_structure, net_layers)
 
         self.noisy_layers = [
@@ -156,11 +155,10 @@ class DuelingQNet(AbstractNet):
         if len(net_structure) < 4:
             raise ValueError('Network structure must have at least 4 dimensions (input, two hidden dims, and output)')
 
-        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
-
         if net_layers is None:
             net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
 
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
         super().__init__(network_type, algorithm_name)
 
         self.noisy_layers = []
