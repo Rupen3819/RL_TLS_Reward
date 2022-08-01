@@ -49,6 +49,7 @@ _settings = {
             'red_duration': int,
             'num_intersections': int,
             'intersection_length': int,
+            'cycle_time' : int
         },
 
         'model': {
@@ -92,6 +93,7 @@ _settings = {
             'critic_parameter_sharing': bool,
             'num_states': int,
             'num_actions': int,
+            'action_definition': str,
             'single_state_space': bool,
             'fixed_action_space': bool,
             'local_reward_signal': bool,
