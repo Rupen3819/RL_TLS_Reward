@@ -100,6 +100,7 @@ class SUMO_cycle(Env):
 
     def _set_TL_cycle(self, TL_ID: dict, actions: list):
         TL_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(TL_ID)
+        print(TL_logic)
         for logic in TL_logic:
             for action in actions:
                 for count, phase in enumerate(logic.getPhases()):
@@ -109,6 +110,7 @@ class SUMO_cycle(Env):
                         phase.duration = self.yellow_duration
                     else:
                         phase.duration = action
+            traci.trafficlight.setCompleteRedYellowGreenDefinition(TL_ID,logic)
 
     def _simulate(self):
         for _ in range(self.cycle_time):
