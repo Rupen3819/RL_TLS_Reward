@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 
-from environment import SUMO
+from environment import SUMO_phase, SUMO_cycle
 from training import DQNTraining, PPOTraining, WOLPTraining
 from settings import config, AgentType
 from utils import create_train_path, create_test_path, add_master_data
@@ -17,14 +17,21 @@ is_train = config['is_train']
 
 # Set up the corresponding SUMO environment for training or testing
 if is_train:
-    env = SUMO()
+    if config['action_definition'] == "phase":
+        env = SUMO_phase()
+        print('Number of actions: ', env.action_space.n)
+    elif config['action_definition'] == "cycle":
+        env = SUMO_cycle()
+        print('Number of actions: ', env.action_space)
+    else:
+        raise ValueError('No SUMO environment specified for the selected action_definition')
 else:
     from stats.vehicle import VehicleStatistics
     vehicle_stats = VehicleStatistics()
     env = SUMO(vehicle_stats)
 
 print('State shape: ', env.num_states)
-print('Number of actions: ', env.action_space.n)
+
 
 # Create agent based on config file, and train it
 agent_type = config['agent_type']
@@ -32,7 +39,7 @@ match agent_type:
     case AgentType.RAINBOW_DQN:
         from agents.rainbow_dqn_agent import RainbowDQNAgent
         agent = RainbowDQNAgent(
-            env.num_states, env.action_space.n, config['hidden_dim'], config['fixed_action_space'],
+            env.num_states, env.action_space, config['hidden_dim'], config['fixed_action_space'], #change back to env.action_space.n for the normal case
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update'], True, 1, True, True
         )

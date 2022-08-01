@@ -244,14 +244,14 @@ def create_connection_xml_file(model_path, road_connections, num_edges):
     return connection_file_path
 
 
-def create_tl_logic_xml_file(model_path, grid_nodes):
+def create_tl_logic_xml_file(model_path, grid_nodes, num_actions):
     xml = minidom.Document()
     tl_logics = xml.createElement('tlLogics')
     xml.appendChild(tl_logics)
 
     junction_nodes = [node for node in grid_nodes.keys() if is_junction_node(node)]
-
-    phase_xml_states = [
+    if num_actions == 8:
+        phase_xml_states = [
         'GGGGrrrrrrGGGGrrrrrr', 'yyyyrrrrrryyyyrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
         'rrrrGrrrrrrrrrGrrrrr', 'rrrryrrrrrrrrryrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
         'rrrrrGGGGrrrrrrGGGGr', 'rrrrryyyyrrrrrryyyyr', 'rrrrrrrrrrrrrrrrrrrr',
@@ -260,7 +260,17 @@ def create_tl_logic_xml_file(model_path, grid_nodes):
         'rrrrrGGGGGrrrrrrrrrr', 'rrrrryyyyyrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
         'rrrrrrrrrrGGGGGrrrrr', 'rrrrrrrrrryyyyyrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
         'rrrrrrrrrrrrrrrGGGGG', 'rrrrrrrrrrrrrrryyyyy', 'rrrrrrrrrrrrrrrrrrrr',
-    ]
+        ]
+    elif num_actions == 4:
+        phase_xml_states = [
+            'GGGGrrrrrrGGGGrrrrrr', 'yyyyrrrrrryyyyrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
+            'rrrrGrrrrrrrrrGrrrrr', 'rrrryrrrrrrrrryrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
+            'rrrrrGGGGrrrrrrGGGGr', 'rrrrryyyyrrrrrryyyyr', 'rrrrrrrrrrrrrrrrrrrr',
+            'rrrrrrrrrGrrrrrrrrrG', 'rrrrrrrrryrrrrrrrrry', 'rrrrrrrrrrrrrrrrrrrr',
+        ]
+    else:
+        raise ValueError('Phases for num_actions value not specified')
+
 
     """Create tll.xml file"""
     for node in junction_nodes:
@@ -299,7 +309,7 @@ def create_env_xml_file(model_path, node_file, edge_file, connection_file, tl_lo
     return env_file_path
 
 
-def create_modular_road_network(models_path_name, num_nodes, edge_length=100):
+def create_modular_road_network(models_path_name, num_nodes, num_actions, edge_length=100 ):
     model_path, model_id = create_intersection_path(models_path_name)
 
     grid_nodes, road_edges, road_connections = create_road_network_topology(num_nodes)
@@ -307,7 +317,7 @@ def create_modular_road_network(models_path_name, num_nodes, edge_length=100):
     node_file = create_node_xml_file(model_path, grid_nodes, num_nodes, edge_length)
     edge_file = create_edge_xml_file(model_path, road_edges)
     connection_file = create_connection_xml_file(model_path, road_connections, len(road_edges))
-    tl_logic_file = create_tl_logic_xml_file(model_path, grid_nodes)
+    tl_logic_file = create_tl_logic_xml_file(model_path, grid_nodes, num_actions)
 
     create_env_xml_file(model_path, node_file, edge_file, connection_file, tl_logic_file)
 
