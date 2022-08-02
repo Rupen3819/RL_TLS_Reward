@@ -4,9 +4,8 @@ from shutil import copyfile
 from collections import deque
 
 import numpy as np
-import traci
 
-from environment import SUMO_cycle, SUMO_phase
+from environment import SumoEnv
 from settings import config
 from utils import create_train_path, create_test_path
 
@@ -15,7 +14,7 @@ class EpisodicTraining:
     TEST_EPISODES = 10
     EPISODE_INTERVAL = 100
 
-    def __init__(self, agent, env: SUMO_phase, model_name: str, n_episodes: int, max_t: int):
+    def __init__(self, agent, env: SumoEnv, model_name: str, n_episodes: int, max_t: int):
         self.agent = agent
         self.env = env
         self.n_episodes = n_episodes
@@ -47,7 +46,7 @@ class EpisodicTraining:
             self.agent.load_model(test_model_path)
 
         for i_episode in range(episode_start, episode_end):
-            self.env.general_sumo.generate_traffic(seed=i_episode)
+            self.env.generate_traffic(seed=i_episode)
 
             if not is_train:
                 self.env.vehicle_stats.create(i_episode)
@@ -87,7 +86,7 @@ class DQNTraining(EpisodicTraining):
     def __init__(
             self,
             agent,
-            env: SUMO_phase,
+            env: SumoEnv,
             model_name: str,
             n_episodes: int = config['total_episodes'],
             max_t: int = config['max_steps'] + 1000,
@@ -106,7 +105,7 @@ class DQNTraining(EpisodicTraining):
         for t in range(self.max_t):
             if is_train:
                 q_values, action = self.agent.act(np.array(state), self.eps)
-                action = [16,16,17,17] #Delete for normal case
+                # action = [16,16,17,17] #Delete for normal case
                 next_state, reward, done, _ = self.env.step(action)
                 self.agent.step(state, action, reward, next_state, done)
             else:
@@ -128,7 +127,7 @@ class PPOTraining(EpisodicTraining):
     def __init__(
             self,
             agent,
-            env: SUMO_phase,
+            env: SumoEnv,
             model_name: str,
             n_episodes: int = config['total_episodes'],
             max_t: int = config['max_steps'] + 1000,
@@ -160,7 +159,7 @@ class WOLPTraining(EpisodicTraining):
     def __init__(
             self,
             agent,
-            env: SUMO_phase,
+            env: SumoEnv,
             model_name: str,
             n_episodes: int = config['total_episodes'],
             max_t: int = config['max_steps'] + 1000,

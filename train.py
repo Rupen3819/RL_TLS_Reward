@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 
-from environment import SUMO_phase, SUMO_cycle
+from environment import SumoPhaseEnv, SumoCycleEnv
 from training import DQNTraining, PPOTraining, WOLPTraining
 from settings import config, AgentType
 from utils import create_train_path, create_test_path, add_master_data
@@ -17,21 +17,22 @@ is_train = config['is_train']
 
 # Set up the corresponding SUMO environment for training or testing
 if is_train:
-    if config['action_definition'] == "phase":
-        env = SUMO_phase()
-        print('Number of actions: ', env.action_space.n)
-    elif config['action_definition'] == "cycle":
-        env = SUMO_cycle()
-        print('Number of actions: ', env.action_space)
-    else:
-        raise ValueError('No SUMO environment specified for the selected action_definition')
+    vehicle_stats = None
 else:
     from stats.vehicle import VehicleStatistics
     vehicle_stats = VehicleStatistics()
-    env = SUMO(vehicle_stats)
 
+if config['action_definition'] == "phase":
+    env = SumoPhaseEnv(vehicle_stats)
+    action_size = env.action_space.n
+elif config['action_definition'] == "cycle":
+    env = SumoCycleEnv(vehicle_stats)
+    action_size = env.action_space
+else:
+    raise ValueError('No SUMO environment specified for the selected action_definition')
+
+print('Number of actions: ', action_size)
 print('State shape: ', env.num_states)
-
 
 # Create agent based on config file, and train it
 agent_type = config['agent_type']
@@ -39,7 +40,7 @@ match agent_type:
     case AgentType.RAINBOW_DQN:
         from agents.rainbow_dqn_agent import RainbowDQNAgent
         agent = RainbowDQNAgent(
-            env.num_states, env.action_space, config['hidden_dim'], config['fixed_action_space'], #change back to env.action_space.n for the normal case
+            env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update'], True, 1, True, True
         )
@@ -48,7 +49,7 @@ match agent_type:
     case AgentType.DQN:
         from agents.dqn_agent import DQNAgent
         agent = DQNAgent(
-            env.num_states, env.action_space.n, config['hidden_dim'], config['fixed_action_space'],
+            env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update'],
         )
@@ -57,7 +58,7 @@ match agent_type:
     case AgentType.PPO:
         from agents.ppo_agent import PPOAgent
         agent = PPOAgent(
-            env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
+            env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
             env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
             config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate'],
             config['learning_interval']
@@ -67,7 +68,7 @@ match agent_type:
     case AgentType.WOLP:
         from deprecated.wolp_agent import WolpertingerAgent
         agent = WolpertingerAgent(
-            env.num_states, env.action_space.n, config['actor_dim'], config['critic_dim'], config['eps_policy'],
+            env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['eps_policy'],
             config['actor_init_w'], config['critic_init_w'], config['memory_size_max'], config['batch_size'],
             config['gamma'], config['tau'], config['ou_theta'], config['ou_mu'], config['ou_sigma'],
             config['policy_learning_rate'], config['value_learning_rate'], config['weight_decay']
@@ -77,7 +78,7 @@ match agent_type:
     case AgentType.MADQN:
         from agents.madqn_agent import MADQNAgent
         agent = MADQNAgent(
-            env.num_states, env.action_space.n, len(env.traffic_lights), config['hidden_dim'], config['single_state_space'],
+            env.num_states, action_size, len(env.traffic_lights), config['hidden_dim'], config['single_state_space'],
             config['local_reward_signal'],
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
             config['learning_rate'], config['target_update']
@@ -87,7 +88,7 @@ match agent_type:
     case AgentType.MAPPO:
         from agents.mappo_agent import MAPPOAgent
         agent = MAPPOAgent(
-            env.num_states, env.action_space.n, len(env.traffic_lights), config['actor_dim'], config['critic_dim'],
+            env.num_states, action_size, len(env.traffic_lights), config['actor_dim'], config['critic_dim'],
             config['training_strategy'], config['actor_parameter_sharing'], config['critic_parameter_sharing'],
             config['single_state_space'], config['local_reward_signal'],env.traffic_lights, config['batch_size'],
             config['n_epochs'], config['policy_clip'], config['gamma'], config['gae_lambda'],
@@ -109,7 +110,7 @@ else:
 # Print model information
 print(f'Config: {config}')
 print(f'State shape: {env.num_states}')
-print(f'Number of actions: {env.action_space.n}')
+print(f'Number of actions: {action_size}')
 print(f'Model ID: {env.model_id}')
 print(f'Scores: {scores}')
 BEST_SCORE_WINDOW = 50
