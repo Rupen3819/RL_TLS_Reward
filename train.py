@@ -9,7 +9,7 @@ from pandas import DataFrame
 
 from environment import SumoPhaseEnv, SumoCycleEnv
 from training import DQNTraining, PPOTraining, WOLPTraining
-from settings import config, AgentType
+from settings import config, AgentType, ActionDefinition
 from utils import create_train_path, create_test_path, add_master_data
 
 print(config)
@@ -22,10 +22,10 @@ else:
     from stats.vehicle import VehicleStatistics
     vehicle_stats = VehicleStatistics()
 
-if config['action_definition'] == "phase":
+if config['action_definition'] == ActionDefinition.PHASE:
     env = SumoPhaseEnv(vehicle_stats)
     action_size = env.action_space.n
-elif config['action_definition'] == "cycle":
+elif config['action_definition'] == ActionDefinition.CYCLE:
     env = SumoCycleEnv(vehicle_stats)
     action_size = env.action_space
 else:
@@ -129,12 +129,12 @@ plt.savefig(os.path.join(data_path, 'training_reward.png'))
 # plt.show()
 
 # Save the results from training or testing
-DataFrame(data={"reward": scores}).to_csv(os.path.join(data_path, 'reward.csv'), sep=',')
+DataFrame(data={'reward': scores}).to_csv(os.path.join(data_path, 'reward.csv'), sep=',')
 DataFrame(data={
-    "reward": scores,
-    "training_time": training_times,
-    "waiting_time": env.waiting_time["TL"],
-    "queue_length": env.queue["TL"]
+    'reward': scores,
+    'training_time': training_times,
+    'waiting_time': env.waiting_time['TL'],
+    'queue_length': env.queue['TL']
 }).to_csv(os.path.join(data_path, 'training_stats.csv'), sep=',', index=False)
 
-add_master_data(data_path, config, scores, training_times, env.waiting_time["TL"], env.waiting_time["TL"])
+add_master_data(data_path, config, scores, training_times, env.waiting_time['TL'], env.waiting_time['TL'])
