@@ -3,7 +3,8 @@ import torch
 import torch.optim as optim
 
 from memory.replay import BatchMemory
-from model import PpoActorNet, PpoCriticNet
+from model import PpoActorNet, PpoCriticNet, PpoContinuousActorNet, PpoContinuousCriticNet
+from settings import ActionDefinition
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -15,7 +16,7 @@ class PPOAgent:
             action_size: int,
             actor_dim: list[int, ...],
             critic_dim: list[int, ...],
-            fixed_action_space: bool,
+            fixed_action_space: bool = False,
             traffic_lights: dict[str, str] = None,
             batch_size: int = 256,
             n_epochs: int = 10,
@@ -24,7 +25,8 @@ class PPOAgent:
             gae_lambda: float = 0.95,
             policy_learning_rate: float = 1e-4,
             critic_learning_rate: float = 1e-3,
-            learning_interval: int = 64
+            learning_interval: int = 64,
+            action_definition: ActionDefinition = ActionDefinition.PHASE
     ):
         """
         Initialize MADQN Agent object.
@@ -45,6 +47,8 @@ class PPOAgent:
             policy_learning_rate (float): policy net learning rate
             critic_learning_rate (float): critic net learning rate
             learning_interval (int): how often to learn from experiences
+            action_definition (enum):
+            green_time (int):
         """
 
         self.state_size = state_size
@@ -64,13 +68,21 @@ class PPOAgent:
         self.policy_learning_rate = policy_learning_rate
         self.critic_learning_rate = critic_learning_rate
         self.learning_interval = learning_interval
+        self.action_definition = action_definition
 
-        actor_dim = (self.state_size, *actor_dim, self.action_size)
-        self.actor = PpoActorNet('ppo', actor_dim).to(device)
+        if action_definition == ActionDefinition.PHASE:
+            actor_class = PpoActorNet
+            critic_class = PpoCriticNet
+        else:  # action_definition == ActionDefinition.CYCLE
+            actor_class = PpoContinuousActorNet
+            critic_class = PpoContinuousCriticNet
+
+        actor_structure = [self.state_size, *actor_dim, self.action_size]
+        self.actor = actor_class('ppo', actor_structure).to(device)
         print(self.actor)
 
-        critic_dim = (self.state_size, *critic_dim, 1)
-        self.critic = PpoCriticNet('ppo', critic_dim).to(device)
+        critic_structure = [self.state_size, *critic_dim, 1]
+        self.critic = critic_class('ppo', critic_structure).to(device)
         print(self.critic)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=policy_learning_rate)
@@ -110,7 +122,7 @@ class PPOAgent:
 
             for index, light_id in enumerate(self.traffic_lights):
                 state_one_hot = torch.tensor([self._one_hot_state(index, observation)], dtype=torch.float).to(device)
-                actions[light_id], values[light_id], log_probs[light_id],  = self._choose_action(state_one_hot)
+                actions[light_id], values[light_id], log_probs[light_id] = self._choose_action(state_one_hot)
 
             return actions, values, log_probs
 
@@ -121,13 +133,20 @@ class PPOAgent:
     def _choose_action(self, state):
         dist = self.actor(state)
         value = self.critic(state)
-        action = dist.sample()
 
-        log_prob = torch.squeeze(dist.log_prob(action)).item()
         value = torch.squeeze(value).item()
-        action = torch.squeeze(action).item()
 
-        return action, value, log_prob
+        if self.action_definition == ActionDefinition.PHASE:
+            action = dist.sample()
+            log_prob = torch.squeeze(dist.log_prob(action)).item()
+            action = torch.squeeze(action).item()
+            return action, value, log_prob
+        else:  # self.action_definition == ActionDefinition.CYCLE
+            raw_action = dist.sample().squeeze()
+            log_prob = dist.log_prob(raw_action).sum(axis=1)
+            log_prob = log_prob.detach().item()
+            raw_action = raw_action.tolist()
+            return raw_action, value, log_prob
 
     def _learn(self):
         for _ in range(self.n_epochs):
@@ -150,14 +169,22 @@ class PPOAgent:
 
             for batch in batches:
                 states_batch = torch.tensor(states[batch], dtype=torch.float).to(device)
-                actions_batch = torch.tensor(actions[batch]).to(device)
-                log_probs_batch = torch.tensor(log_probs[batch]).to(device)
+
+                actions_dtype = torch.int if self.action_definition == ActionDefinition.PHASE else torch.float
+                actions_batch = actions[batch]
+                actions_batch = torch.tensor(actions_batch, dtype=actions_dtype).to(device)
+
+                log_probs_batch = torch.tensor(log_probs[batch], dtype=torch.float).to(device)
 
                 dist = self.actor(states_batch)
                 critic_value = self.critic(states_batch)
                 critic_value = torch.squeeze(critic_value)
 
-                new_log_probs_batch = dist.log_prob(actions_batch)
+                if self.action_definition == ActionDefinition.PHASE:
+                    new_log_probs_batch = dist.log_prob(actions_batch)
+                else:  # self.action_definition == ActionDefinition.CYCLE
+                    new_log_probs_batch = dist.log_prob(actions_batch).sum(axis=1)
+
                 prob_ratio = (new_log_probs_batch - log_probs_batch).exp()
                 weighted_probs = advantages[batch] * prob_ratio
                 weighted_clipped_probs = torch.clamp(

@@ -7,6 +7,11 @@ import configparser
 import argparse
 
 
+class ActionDefinition(Enum):
+    PHASE = auto()
+    CYCLE = auto()
+
+
 class TrainingStrategy(Enum):
     NONSTRATEGIC = auto()
     CONCURRENT = auto()
@@ -49,7 +54,8 @@ _settings = {
             'red_duration': int,
             'num_intersections': int,
             'intersection_length': int,
-            'cycle_time' : int
+            'cycle_time': int,
+            'min_green_duration': int
         },
 
         'model': {
@@ -93,7 +99,7 @@ _settings = {
             'critic_parameter_sharing': bool,
             'num_states': int,
             'num_actions': int,
-            'action_definition': str,
+            'action_definition': ActionDefinition,
             'single_state_space': bool,
             'fixed_action_space': bool,
             'local_reward_signal': bool,

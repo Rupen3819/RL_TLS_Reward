@@ -1,12 +1,13 @@
 import math
 import os
-from typing import Type
+from typing import Type, Callable
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
+from torch.distributions import Beta
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -95,14 +96,15 @@ class AbstractNet(nn.Module):
         return os.path.join(path, model_name)
 
 
-class ReluNet(AbstractNet):
+class DenseNet(AbstractNet):
     def __init__(
             self,
+            activation_func: Callable[[torch.Tensor], torch.Tensor],
             network_type: str,
             algorithm_name: str,
             net_structure: list[int, ...],
             net_layers: list[Type, ...] = None
-    ):
+     ):
         super().__init__(network_type, algorithm_name)
 
         if net_layers is None:
@@ -118,6 +120,28 @@ class ReluNet(AbstractNet):
             x = F.relu(layer(x))
         out = self.layers[-1](x)
         return out
+
+
+class ReluNet(DenseNet):
+    def __init__(
+            self,
+            network_type: str,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...] = None
+    ):
+        super().__init__(F.relu, network_type, algorithm_name, net_structure, net_layers)
+
+
+class TanhNet(DenseNet):
+    def __init__(
+            self,
+            network_type: str,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...] = None
+    ):
+        super().__init__(F.tanh, network_type, algorithm_name, net_structure, net_layers)
 
 
 class QNet(ReluNet):
@@ -284,6 +308,26 @@ class PpoActorNet(ReluNet):
 
 
 class PpoCriticNet(ReluNet):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
+        super().__init__('critic', algorithm_name, net_structure)
+
+
+class PpoContinuousActorNet(TanhNet):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
+        super().__init__('actor', algorithm_name, net_structure[:-1])
+
+        self.alpha = nn.Linear(net_structure[-2], net_structure[-1])
+        self.beta = nn.Linear(net_structure[-2], net_structure[-1])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = super().forward(x)
+        alpha = F.relu(self.alpha(x)) + 1.0
+        beta = F.relu(self.beta(x)) + 1.0
+        dist = Beta(alpha, beta)
+        return dist
+
+
+class PpoContinuousCriticNet(TanhNet):
     def __init__(self, algorithm_name, net_structure: list[int, ...]):
         super().__init__('critic', algorithm_name, net_structure)
 

@@ -6,6 +6,7 @@ import traci
 from gym import Env
 from gym.spaces import Discrete
 from sumolib import checkBinary
+from scipy.special import softmax
 
 from modular_road_network_structure import create_modular_road_network
 from settings import config, RewardDefinition
@@ -38,16 +39,6 @@ class SumoEnv(Env):
 
         self.num_intersections = config['num_intersections']
 
-        if config['single_agent']:
-            if config['fixed_action_space']:
-                self.action_space = Discrete(config['num_actions'])
-            else:
-                self.single_action_space = Discrete(config['num_actions'])
-                self.action_space = Discrete(pow(config['num_actions'], self.num_intersections))
-        else:
-            self.action_space = Discrete(config['num_actions'])
-            self.num_agents = len(self.traffic_lights)
-
         self.generate_traffic()
         self._sumo_cmd = configure_sumo(config['gui'], self.model_path, config['sumocfg_file_name'], config['max_steps'])
         traci.start(self._sumo_cmd)
@@ -64,7 +55,7 @@ class SumoEnv(Env):
 
         self.reward = 0
 
-    def step(self, actions: dict):
+    def step(self, actions):
         # Removed because it slows training down
         # self.junction_stats.step()
 
@@ -143,8 +134,11 @@ class SumoCycleEnv(SumoEnv):
             self.num_agents = len(self.traffic_lights)
 
         self.old_actions = dict.fromkeys(self.traffic_lights, [0] * self.action_space)
+        self.green_time = self._compute_total_green_time()
 
-    def step(self, actions):
+    def step(self, raw_actions: list[float]):
+        actions = self._compute_cycle_action(raw_actions)
+
         for light_id in self.traffic_lights:
             self._set_traffic_light_cycle(light_id, actions)
 
@@ -152,21 +146,30 @@ class SumoCycleEnv(SumoEnv):
 
         return super().step(actions)
 
-    def _set_traffic_light_cycle(self, light_id: str, actions: list):
+    def _set_traffic_light_cycle(self, light_id: str, actions: list[float]):
         light_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(light_id)
-        print(light_logic)
+
         for logic in light_logic:
             for action in actions:
                 for count, phase in enumerate(logic.getPhases()):
                     phase_type = count % 3
                     if phase_type == 0:
-                        phase.duration = action
+                        phase.duration = action + config['min_green_duration']
                     elif phase_type == 1:
                         phase.duration = self.yellow_duration
                     else:
                         phase.duration = self.red_duration
 
             traci.trafficlight.setCompleteRedYellowGreenDefinition(light_id, logic)
+
+    def _compute_cycle_action(self, raw_action):
+        action_proportions = softmax(raw_action)
+        action = action_proportions * self.green_time
+        return action
+
+    def _compute_total_green_time(self):
+        min_phase_duration = config['min_green_duration'] + config['yellow_duration'] + config['red_duration']
+        return config['cycle_time'] - self.action_space * min_phase_duration
 
 
 class SumoPhaseEnv(SumoEnv):

@@ -61,7 +61,7 @@ match agent_type:
             env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
             env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
             config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate'],
-            config['learning_interval']
+            config['learning_interval'], config['action_definition']
         )
         scores, training_times = PPOTraining(agent, env, 'ppo').train(is_train=is_train)
 
