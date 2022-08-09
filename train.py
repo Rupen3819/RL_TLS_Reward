@@ -36,68 +36,67 @@ print('State shape: ', env.num_states)
 
 # Create agent based on config file, and train it
 agent_type = config['agent_type']
-match agent_type:
-    case AgentType.RAINBOW_DQN:
-        from agents.rainbow_dqn_agent import RainbowDQNAgent
-        agent = RainbowDQNAgent(
-            env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
-            env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
-            config['learning_rate'], config['target_update'], True, 1, True, True
-        )
-        scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
+if agent_type == AgentType.RAINBOW_DQN:
+    from agents.rainbow_dqn_agent import RainbowDQNAgent
+    agent = RainbowDQNAgent(
+        env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
+        env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
+        config['learning_rate'], config['target_update'], True, 1, True, True
+    )
+    scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
 
-    case AgentType.DQN:
-        from agents.dqn_agent import DQNAgent
-        agent = DQNAgent(
-            env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
-            env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
-            config['learning_rate'], config['target_update'],
-        )
-        scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
+elif agent_type == AgentType.DQN:
+    from agents.dqn_agent import DQNAgent
+    agent = DQNAgent(
+        env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
+        env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
+        config['learning_rate'], config['target_update'],
+    )
+    scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
 
-    case AgentType.PPO:
-        from agents.ppo_agent import PPOAgent
-        agent = PPOAgent(
-            env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
-            env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
-            config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate'],
-            config['learning_interval'], config['action_definition']
-        )
-        scores, training_times = PPOTraining(agent, env, 'ppo').train(is_train=is_train)
+elif agent_type == AgentType.PPO:
+    from agents.ppo_agent import PPOAgent
+    agent = PPOAgent(
+        env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['fixed_action_space'],
+        env.traffic_lights, config['batch_size'], config['n_epochs'], config['policy_clip'], config['gamma'],
+        config['gae_lambda'], config['policy_learning_rate'], config['value_learning_rate'],
+        config['learning_interval'], config['action_definition']
+    )
+    scores, training_times = PPOTraining(agent, env, 'ppo').train(is_train=is_train)
 
-    case AgentType.WOLP:
-        from deprecated.wolp_agent import WolpertingerAgent
-        agent = WolpertingerAgent(
-            env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['eps_policy'],
-            config['actor_init_w'], config['critic_init_w'], config['memory_size_max'], config['batch_size'],
-            config['gamma'], config['tau'], config['ou_theta'], config['ou_mu'], config['ou_sigma'],
-            config['policy_learning_rate'], config['value_learning_rate'], config['weight_decay']
-        )
-        scores, training_times = WOLPTraining(agent, env, 'wolp').train(is_train=is_train)
+elif agent_type == AgentType.WOLP:
+    from deprecated.wolp_agent import WolpertingerAgent
+    agent = WolpertingerAgent(
+        env.num_states, action_size, config['actor_dim'], config['critic_dim'], config['eps_policy'],
+        config['actor_init_w'], config['critic_init_w'], config['memory_size_max'], config['batch_size'],
+        config['gamma'], config['tau'], config['ou_theta'], config['ou_mu'], config['ou_sigma'],
+        config['policy_learning_rate'], config['value_learning_rate'], config['weight_decay']
+    )
+    scores, training_times = WOLPTraining(agent, env, 'wolp').train(is_train=is_train)
 
-    case AgentType.MADQN:
-        from agents.madqn_agent import MADQNAgent
-        agent = MADQNAgent(
-            env.num_states, action_size, len(env.traffic_lights), config['hidden_dim'], config['single_state_space'],
-            config['local_reward_signal'],
-            env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
-            config['learning_rate'], config['target_update']
-        )
-        scores, training_times = DQNTraining(agent, env, 'madqn').train(is_train=is_train)
+elif agent_type == AgentType.MADQN:
+    from agents.madqn_agent import MADQNAgent
+    agent = MADQNAgent(
+        env.num_states, action_size, len(env.traffic_lights), config['hidden_dim'], config['single_state_space'],
+        config['local_reward_signal'],
+        env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
+        config['learning_rate'], config['target_update']
+    )
+    scores, training_times = DQNTraining(agent, env, 'madqn').train(is_train=is_train)
 
-    case AgentType.MAPPO:
-        from agents.mappo_agent import MAPPOAgent
-        agent = MAPPOAgent(
-            env.num_states, action_size, len(env.traffic_lights), config['actor_dim'], config['critic_dim'],
-            config['training_strategy'], config['actor_parameter_sharing'], config['critic_parameter_sharing'],
-            config['single_state_space'], config['local_reward_signal'],env.traffic_lights, config['batch_size'],
-            config['n_epochs'], config['policy_clip'], config['gamma'], config['gae_lambda'],
-            config['policy_learning_rate'], config['value_learning_rate']
-        )
-        scores, training_times = PPOTraining(agent, env, 'mappo').train(is_train=is_train)
+elif agent_type == AgentType.MAPPO:
+    from agents.mappo_agent import MAPPOAgent
+    agent = MAPPOAgent(
+        env.num_states, action_size, len(env.traffic_lights), config['actor_dim'], config['critic_dim'],
+        config['training_strategy'], config['actor_parameter_sharing'], config['critic_parameter_sharing'],
+        config['single_state_space'], config['local_reward_signal'],env.traffic_lights, config['batch_size'],
+        config['n_epochs'], config['policy_clip'], config['gamma'], config['gae_lambda'],
+        config['policy_learning_rate'], config['value_learning_rate']
+    )
+    scores, training_times = PPOTraining(agent, env, 'mappo').train(is_train=is_train)
 
-    case _:
-        sys.exit(f'Invalid agent_type: {agent_type} is not an implemented agent')
+else:
+    sys.exit(f'Invalid agent_type: {agent_type} is not an implemented agent')
 
 if is_train:
     path, _ = create_train_path(config['models_path_name'])
