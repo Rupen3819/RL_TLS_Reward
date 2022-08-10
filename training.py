@@ -59,11 +59,11 @@ class EpisodicTraining:
             scores.append(score)
 
             training_times.append((datetime.datetime.now() - timestamp_start).total_seconds())
-            print('Episode {} score: {:.2f}'.format(i_episode, score))
+            logger.log('Episode {} score: {:.2f}'.format(i_episode, score))
 
             if i_episode % self.EPISODE_INTERVAL == 0:
                 logger.log()
-                print('Episodes {}-{} average score: {:.2f}'.format(
+                logger.log('Episodes {}-{} average score: {:.2f}'.format(
                     i_episode - self.EPISODE_INTERVAL + 1, i_episode, np.mean(scores_window))
                 )
                 logger.log()
