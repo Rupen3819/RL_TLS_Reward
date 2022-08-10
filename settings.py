@@ -1,7 +1,6 @@
 import os
 import sys
 from enum import Enum, EnumMeta, auto
-# from types import SimpleNamespace
 
 import configparser
 import argparse
@@ -122,24 +121,24 @@ _settings = {
     }
 
 
-def _import_configuration():
+def _import_configuration_data():
     """Read the appropriate config file (for training or testing)."""
     config_file = 'training_settings.ini'
     options = _get_cli_options()
-    config = _parse_config_file(config_file, options, is_train_config=True)
+    config_data = _parse_config_file(config_file, options, is_train_config=True)
 
-    if not config['is_train']:
-        test_config_file = os.path.join(config['test_model_path_name'], config_file)
-        config = _parse_config_file(test_config_file, options, is_train_config=False)
-        _overwrite_config_with_options(config, options)
+    if not config_data['is_train']:
+        test_config_file = os.path.join(config_data['test_model_path_name'], config_file)
+        config_data = _parse_config_file(test_config_file, options, is_train_config=False)
+        _overwrite_config_with_options(config_data, options)
 
-    return config
+    return config_data
 
 
 def _parse_config_file(config_file, options, is_train_config):
     content = configparser.ConfigParser()
     content.read(config_file)
-    config = {}
+    config_data = {}
 
     for category, category_settings in _settings.items():
         for setting, setting_type in category_settings.items():
@@ -166,24 +165,24 @@ def _parse_config_file(config_file, options, is_train_config):
             else:
                 sys.exit(f'Invalid type "{setting_type}" for setting "{setting}"')
 
-            config[setting] = value
+            config_data[setting] = value
 
-    _overwrite_config_with_options(config, options)
+    _overwrite_config_with_options(config_data, options)
 
     # Handle the multi-agent and single agent cases
-    if config['agent_type'].is_multi():
-        config['single_agent'] = False
-        config['fixed_action_space'] = False
+    if config_data['agent_type'].is_multi():
+        config_data['single_agent'] = False
+        config_data['fixed_action_space'] = False
     else:
-        config['single_agent'] = True
-        config['single_state_space'] = False
-        config['local_reward_signal'] = False
+        config_data['single_agent'] = True
+        config_data['single_state_space'] = False
+        config_data['local_reward_signal'] = False
 
     # Change settings for test configuration
     if not is_train_config:
-        config['is_train'] = False
+        config_data['is_train'] = False
 
-    return config
+    return config_data
 
 
 def _create_enum_converter(enum_class):
@@ -221,11 +220,22 @@ class _IntListAction(argparse.Action):
         setattr(namespace, self.dest, value)
 
 
-def _overwrite_config_with_options(config, options):
+def _overwrite_config_with_options(config_data, options):
     for option_name, value in options.__dict__.items():
         if value is not None:
-            config[option_name] = value
+            config_data[option_name] = value
 
 
-# config = SimpleNamespace(**_import_configuration())
-config = _import_configuration()
+class Configuration(dict):
+    def __init__(self, config_data):
+        super().__init__(config_data)
+
+    def overwrite(self, config_changes):
+        for setting, value in config_changes.items():
+            self[setting] = value
+
+    def __getattr__(self, item):
+        return self[item]
+
+
+config = Configuration(_import_configuration_data())
