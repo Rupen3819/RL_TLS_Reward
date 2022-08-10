@@ -10,10 +10,25 @@ from pandas import DataFrame
 from environment import SumoPhaseEnv, SumoCycleEnv
 from training import DQNTraining, PPOTraining, WOLPTraining
 from settings import config, AgentType, ActionDefinition
-from utils import create_train_path, create_test_path, add_master_data
+from utils import logger, create_train_path, create_test_path, add_master_data
 
-print(config)
 is_train = config['is_train']
+
+# Set up the folder for the training/test results
+if is_train:
+    path, _ = create_train_path(config['models_path_name'])
+    print('Training results will be saved in:', path)
+    copyfile(src='training_settings.ini', dst=os.path.join(path, 'training_settings.ini'))
+else:
+    path, plot_path = create_test_path(config['test_model_path_name'])
+    print('Test results will be saved in:', plot_path)
+
+logger.set_log_file(os.path.join(path, 'log.txt'))
+
+logger.log('Training settings')
+for setting, value in config.items():
+    logger.log(f'{setting}: {value}')
+logger.log('\n')
 
 # Set up the corresponding SUMO environment for training or testing
 if is_train:
@@ -31,8 +46,8 @@ elif config['action_definition'] == ActionDefinition.CYCLE:
 else:
     raise ValueError('No SUMO environment specified for the selected action_definition')
 
-print('Number of actions: ', action_size)
-print('State shape: ', env.num_states)
+logger.log('Number of actions: ', action_size)
+logger.log('State shape: ', env.num_states)
 
 # Create agent based on config file, and train it
 agent_type = config['agent_type']
@@ -98,23 +113,15 @@ elif agent_type == AgentType.MAPPO:
 else:
     sys.exit(f'Invalid agent_type: {agent_type} is not an implemented agent')
 
-if is_train:
-    path, _ = create_train_path(config['models_path_name'])
-    print('Training results will be saved in:', path)
-    copyfile(src='training_settings.ini', dst=os.path.join(path, 'training_settings.ini'))
-else:
-    test_path, plot_path = create_test_path(config['test_model_path_name'])
-    print('Test results will be saved in:', plot_path)
-
-# Print model information
-print(f'Config: {config}')
-print(f'State shape: {env.num_states}')
-print(f'Number of actions: {action_size}')
-print(f'Model ID: {env.model_id}')
-print(f'Scores: {scores}')
+# Log model information
+logger.log(f'Config: {config}')
+logger.log(f'State shape: {env.num_states}')
+logger.log(f'Number of actions: {action_size}')
+logger.log(f'Model ID: {env.model_id}')
+logger.log(f'Scores: {scores}')
 BEST_SCORE_WINDOW = 50
 if config['total_episodes'] >= BEST_SCORE_WINDOW and is_train:
-    print(f'Smallest scores (n={BEST_SCORE_WINDOW}): {heapq.nlargest(BEST_SCORE_WINDOW, scores)}')
+    logger.log(f'Smallest scores (n={BEST_SCORE_WINDOW}): {heapq.nlargest(BEST_SCORE_WINDOW, scores)}')
 
 data_path = path if is_train else plot_path
 

@@ -7,7 +7,7 @@ import numpy as np
 
 from environment import SumoEnv
 from settings import config
-from utils import create_train_path, create_test_path
+from utils import logger, create_train_path, create_test_path
 
 
 class EpisodicTraining:
@@ -59,12 +59,14 @@ class EpisodicTraining:
             scores.append(score)
 
             training_times.append((datetime.datetime.now() - timestamp_start).total_seconds())
-            print(
-                '\r                                       Episode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(
-                    scores_window)), end="")
+            print('Episode {} score: {:.2f}'.format(i_episode, score))
 
             if i_episode % self.EPISODE_INTERVAL == 0:
-                print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
+                logger.log()
+                print('Episodes {}-{} average score: {:.2f}'.format(
+                    i_episode - self.EPISODE_INTERVAL + 1, i_episode, np.mean(scores_window))
+                )
+                logger.log()
 
             if not is_train:
                 self.env.vehicle_stats.save(plot_path)
