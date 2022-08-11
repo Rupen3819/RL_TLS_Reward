@@ -64,8 +64,8 @@ def main():
         scores, training_times = DQNTraining(agent, env, 'dqn').train(is_train=is_train)
 
     elif agent_type == AgentType.DQN:
-        # from agents.dqn_agent import DQNAgent
-        from agents.rainbow_dqn_agent import DQNAgent
+        from agents.dqn_agent import DQNAgent
+        # from agents.rainbow_dqn_agent import DQNAgent
         agent = DQNAgent(
             env.num_states, action_size, config['hidden_dim'], config['fixed_action_space'],
             env.traffic_lights, config['memory_size_max'], config['batch_size'], config['gamma'], config['tau'],
