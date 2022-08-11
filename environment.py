@@ -150,6 +150,7 @@ class SumoCycleEnv(SumoEnv):
         light_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(light_id)
 
         for logic in light_logic:
+            print(actions)
             for action in actions:
                 for count, phase in enumerate(logic.getPhases()):
                     phase_type = count % 3
@@ -302,6 +303,9 @@ def configure_sumo(gui, model_path, sumocfg_file_name, max_steps):
 
     # Setting the cmd command to run sumo at simulation time
     model_path = os.path.join(model_path, sumocfg_file_name)
-    sumo_cmd = [sumo_binary, "-c", model_path, "--no-step-log", "true", "--waiting-time-memory", str(max_steps)]
+    sumo_cmd = [
+        sumo_binary, "-c", model_path, "--no-step-log", "true",
+        "--waiting-time-memory", str(max_steps), "--xml-validation", "never"
+    ]
 
     return sumo_cmd
