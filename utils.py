@@ -71,7 +71,7 @@ def add_master_data(path, config, scores, training_time, wait, queue):
         'cars_generated': config['n_cars_generated'],
         'num_actions': config['num_actions'],
         'state_representation': config['state_representation'],
-        'action_representation': config['action_representation'],
+        'action_representation': config['action_definition'],
         'final_reward': scores[-1],
         'training_time': training_time[-1],
         'final_waiting_time': wait,

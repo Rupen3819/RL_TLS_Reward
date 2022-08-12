@@ -58,20 +58,25 @@ _settings = {
         },
 
         'model': {
+            # Common agent settings
+            'batch_size': int,
+
+            # DQN agents settings
             'hidden_dim': list,
+            'target_update': int,
+            'learning_rate': float,
+
+            # PPO agents settings
             'critic_dim': list,
             'actor_dim': list,
-            'batch_size': int,
-            'learning_rate': float,
-            'num_layers': int,
             'policy_learning_rate': float,
             'value_learning_rate': float,
+
+            # WOLP/DDPG agent settings
+            'weight_decay': float,
+            'warmup': int,
             'actor_init_w': float,
             'critic_init_w': float,
-            'weight_decay': float,
-            'training_epochs': int,
-            'target_update': int,
-            'warmup': int,
         },
 
         'memory': {
@@ -87,30 +92,42 @@ _settings = {
         },
 
         'agent': {
+            # Common agent settings
             'agent_type': AgentType,
             'model': str,
             'is_train': bool,
             'state_representation': StateRepresentation,
-            'action_representation': str,
-            'reward_definition': RewardDefinition,
-            'training_strategy': TrainingStrategy,
-            'actor_parameter_sharing': bool,
-            'critic_parameter_sharing': bool,
-            'num_states': int,
-            'num_actions': int,
             'action_definition': ActionDefinition,
-            'single_state_space': bool,
-            'fixed_action_space': bool,
-            'local_reward_signal': bool,
+            'reward_definition': RewardDefinition,
+            'num_actions': int,
+            'num_states': int,
             'gamma': float,
+
+            # DQN agents settings
             'tau': float,
-            'ou_theta': float,
-            'ou_mu': float,
-            'ou_sigma': float,
+
+            # PPO agents settings
             'gae_lambda': float,
             'policy_clip': float,
             'n_epochs': int,
             'learning_interval': int,
+
+            # MAPPO agent settings
+            'training_strategy': TrainingStrategy,
+            'actor_parameter_sharing': bool,
+            'critic_parameter_sharing': bool,
+
+            # Single agent settings
+            'fixed_action_space': bool,
+
+            # Multi agent settings
+            'single_state_space': bool,
+            'local_reward_signal': bool,
+
+            # WOLP/DDPG agent settings
+            'ou_theta': float,
+            'ou_mu': float,
+            'ou_sigma': float,
         },
 
         'dir': {
