@@ -1,3 +1,10 @@
+# Generated files
+intersection/Rl_Agent
+models_dqn/
+
+# IDE files
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
