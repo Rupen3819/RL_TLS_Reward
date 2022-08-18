@@ -1,12 +1,13 @@
 import math
 import os
-from typing import Type
+from typing import Type, Callable
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
+from torch.distributions import Beta
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -95,14 +96,15 @@ class AbstractNet(nn.Module):
         return os.path.join(path, model_name)
 
 
-class ReluNet(AbstractNet):
+class DenseNet(AbstractNet):
     def __init__(
             self,
+            activation_func: Callable[[torch.Tensor], torch.Tensor],
             network_type: str,
             algorithm_name: str,
             net_structure: list[int, ...],
             net_layers: list[Type, ...] = None
-    ):
+     ):
         super().__init__(network_type, algorithm_name)
 
         if net_layers is None:
@@ -120,6 +122,28 @@ class ReluNet(AbstractNet):
         return out
 
 
+class ReluNet(DenseNet):
+    def __init__(
+            self,
+            network_type: str,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...] = None
+    ):
+        super().__init__(F.relu, network_type, algorithm_name, net_structure, net_layers)
+
+
+class TanhNet(DenseNet):
+    def __init__(
+            self,
+            network_type: str,
+            algorithm_name: str,
+            net_structure: list[int, ...],
+            net_layers: list[Type, ...] = None
+    ):
+        super().__init__(F.tanh, network_type, algorithm_name, net_structure, net_layers)
+
+
 class QNet(ReluNet):
     def __init__(
             self,
@@ -127,11 +151,10 @@ class QNet(ReluNet):
             net_structure: list[int, ...],
             net_layers: list[Type, ...] = None
     ):
-        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
-
         if net_layers is None:
             net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
 
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
         super().__init__(network_type, algorithm_name, net_structure, net_layers)
 
         self.noisy_layers = [
@@ -156,11 +179,10 @@ class DuelingQNet(AbstractNet):
         if len(net_structure) < 4:
             raise ValueError('Network structure must have at least 4 dimensions (input, two hidden dims, and output)')
 
-        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
-
         if net_layers is None:
             net_layers = [nn.Linear for _ in range(len(net_structure) - 1)]
 
+        network_type = 'noisy_q_network' if NoisyLinear in net_layers else 'q_network'
         super().__init__(network_type, algorithm_name)
 
         self.noisy_layers = []
@@ -286,6 +308,26 @@ class PpoActorNet(ReluNet):
 
 
 class PpoCriticNet(ReluNet):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
+        super().__init__('critic', algorithm_name, net_structure)
+
+
+class PpoContinuousActorNet(TanhNet):
+    def __init__(self, algorithm_name, net_structure: list[int, ...]):
+        super().__init__('actor', algorithm_name, net_structure[:-1])
+
+        self.alpha = nn.Linear(net_structure[-2], net_structure[-1])
+        self.beta = nn.Linear(net_structure[-2], net_structure[-1])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = super().forward(x)
+        alpha = F.relu(self.alpha(x)) + 1.0
+        beta = F.relu(self.beta(x)) + 1.0
+        dist = Beta(alpha, beta)
+        return dist
+
+
+class PpoContinuousCriticNet(TanhNet):
     def __init__(self, algorithm_name, net_structure: list[int, ...]):
         super().__init__('critic', algorithm_name, net_structure)
 

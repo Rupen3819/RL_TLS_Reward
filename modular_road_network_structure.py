@@ -1,5 +1,6 @@
 import math
 import os
+from itertools import chain
 from shutil import copy
 from xml.dom import minidom
 
@@ -251,26 +252,27 @@ def create_tl_logic_xml_file(model_path, grid_nodes, num_actions):
 
     junction_nodes = [node for node in grid_nodes.keys() if is_junction_node(node)]
     if num_actions == 8:
-        phase_xml_states = [
-        'GGGGrrrrrrGGGGrrrrrr', 'yyyyrrrrrryyyyrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrGrrrrrrrrrGrrrrr', 'rrrryrrrrrrrrryrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrrGGGGrrrrrrGGGGr', 'rrrrryyyyrrrrrryyyyr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrrrrrrGrrrrrrrrrG', 'rrrrrrrrryrrrrrrrrry', 'rrrrrrrrrrrrrrrrrrrr',
-        'GGGGGrrrrrrrrrrrrrrr', 'yyyyyrrrrrrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrrGGGGGrrrrrrrrrr', 'rrrrryyyyyrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrrrrrrrGGGGGrrrrr', 'rrrrrrrrrryyyyyrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-        'rrrrrrrrrrrrrrrGGGGG', 'rrrrrrrrrrrrrrryyyyy', 'rrrrrrrrrrrrrrrrrrrr',
+        green_phase_states = [
+            'GGGGrrrrrrGGGGrrrrrr',
+            'rrrrGrrrrrrrrrGrrrrr',
+            'rrrrrGGGGrrrrrrGGGGr',
+            'rrrrrrrrrGrrrrrrrrrG',
+            'GGGGGrrrrrrrrrrrrrrr',
+            'rrrrrGGGGGrrrrrrrrrr',
+            'rrrrrrrrrrGGGGGrrrrr',
+            'rrrrrrrrrrrrrrrGGGGG',
         ]
     elif num_actions == 4:
-        phase_xml_states = [
-            'GGGGrrrrrrGGGGrrrrrr', 'yyyyrrrrrryyyyrrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-            'rrrrGrrrrrrrrrGrrrrr', 'rrrryrrrrrrrrryrrrrr', 'rrrrrrrrrrrrrrrrrrrr',
-            'rrrrrGGGGrrrrrrGGGGr', 'rrrrryyyyrrrrrryyyyr', 'rrrrrrrrrrrrrrrrrrrr',
-            'rrrrrrrrrGrrrrrrrrrG', 'rrrrrrrrryrrrrrrrrry', 'rrrrrrrrrrrrrrrrrrrr',
+        green_phase_states = [
+            'GGGGrrrrrrGGGGrrrrrr',
+            'rrrrGrrrrrrrrrGrrrrr',
+            'rrrrrGGGGrrrrrrGGGGr',
+            'rrrrrrrrrGrrrrrrrrrG',
         ]
     else:
         raise ValueError('Phases for num_actions value not specified')
 
+    phase_xml_states = create_all_phase_states(green_phase_states)
 
     """Create tll.xml file"""
     for node in junction_nodes:
@@ -298,6 +300,19 @@ def create_tl_logic_xml_file(model_path, grid_nodes, num_actions):
         f.write(xml_str)
 
     return tl_logic_file_path
+
+
+def create_all_phase_states(green_phase_states):
+    all_phases = chain.from_iterable(
+        (
+            green_phase,
+            green_phase.replace('G', 'y'),  # yellow phase
+            'r' * len(green_phase)  # red phase
+        )
+        for green_phase in green_phase_states
+    )
+
+    return list(all_phases)
 
 
 def create_env_xml_file(model_path, node_file, edge_file, connection_file, tl_logic_file):

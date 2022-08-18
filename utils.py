@@ -71,7 +71,7 @@ def add_master_data(path, config, scores, training_time, wait, queue):
         'cars_generated': config['n_cars_generated'],
         'num_actions': config['num_actions'],
         'state_representation': config['state_representation'],
-        'action_representation': config['action_representation'],
+        'action_representation': config['action_definition'],
         'final_reward': scores[-1],
         'training_time': training_time[-1],
         'final_waiting_time': wait,
@@ -79,6 +79,7 @@ def add_master_data(path, config, scores, training_time, wait, queue):
     }])], ignore_index=True)
 
     master_df.to_excel(MASTER_DATA_FILE, index=False)
+
 
 class Direction(Enum):
     NORTH = 0
@@ -100,3 +101,22 @@ class RelativeDirection(Enum):
     STRAIGHT = 1
     RIGHT = 2
 
+
+class Logger:
+    def __init__(self):
+        self.log_file_path = None
+
+    def set_log_file(self, log_file_path):
+        self.log_file_path = log_file_path
+        print('Logging output will be saved to:', log_file_path)
+        open(log_file_path, 'a').close()
+
+    def log(self, *args, **kwargs):
+        print(*args, **kwargs)
+
+        if self.log_file_path is not None:
+            with open(self.log_file_path, 'a') as file:
+                print(*args, **kwargs, file=file)
+
+
+logger = Logger()

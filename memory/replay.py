@@ -251,22 +251,47 @@ class MultiSequentialMemory:
 
 class BatchMemory:
     def __init__(self, batch_size):
-        self.experiences = []
+        self.memory = []
         self.batch_size = batch_size
 
     def store(self, state, action, reward, done, values, probs):
         experience = PpoExperience(state, action, reward, done, values, probs)
-        self.experiences.append(experience)
+        self.memory.append(experience)
 
     def reset(self):
-        self.experiences = []
+        self.memory = []
 
     def generate_batches(self):
-        indices = np.arange(len(self.experiences), dtype=np.int64)
+        indices = np.arange(len(self.memory), dtype=np.int64)
         np.random.shuffle(indices)
         batches = [
             indices[i : i + self.batch_size]
-            for i in range(0, len(self.experiences), self.batch_size)
+            for i in range(0, len(self.memory), self.batch_size)
         ]
 
-        return *map(np.array, zip(*self.experiences)), batches
+        return *map(np.array, zip(*self.memory)), batches
+
+
+class BatchMultiMemory(BatchMemory):
+    def __init__(
+            self,
+            batch_size: int,
+            single_state_space: bool = False,
+            state_size: int = None,
+            action_size: int = None,
+            num_agents: int = None
+    ):
+        super().__init__(batch_size)
+        self.single_state_space = single_state_space
+        self.state_size = state_size
+        self.action_size = action_size
+        self.num_agents = num_agents
+
+    def generate_batches(self):
+        states, actions, rewards, dones, values, probs, batches = super().generate_batches()
+
+        whole_states = None
+        if self.single_state_space:
+            whole_states = states.reshape(-1, self.num_agents * self.state_size)
+
+        return states, actions, rewards, dones, values, probs, whole_states, batches

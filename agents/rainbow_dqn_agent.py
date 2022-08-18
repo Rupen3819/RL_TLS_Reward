@@ -346,3 +346,25 @@ class RainbowDQNAgent:
         print('Loading model')
         self.local_q_network.load_checkpoint(path)
         print('Model loaded sucessfully')
+
+
+class DQNAgent(RainbowDQNAgent):
+    def __init__(
+        self,
+        state_size: int,
+        action_size: int,
+        hidden_dim: list[int, ...],
+        fixed_action_space: bool = False,
+        traffic_lights: dict[str, str] = None,
+        buffer_size: int = int(1e5),
+        batch_size: int = 64,
+        gamma: float = 0.99,
+        tau: float = 1e-3,
+        learning_rate: float = 5e-4,
+        update_interval: int = 4,
+    ):
+        super().__init__(
+            state_size, action_size, hidden_dim, fixed_action_space, traffic_lights,
+            buffer_size, batch_size, gamma, tau, learning_rate, update_interval,
+            False, 1, False, False, False, None, None, None, 1, None, None
+        )

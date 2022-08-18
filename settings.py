@@ -1,10 +1,14 @@
 import os
 import sys
 from enum import Enum, EnumMeta, auto
-# from types import SimpleNamespace
 
 import configparser
 import argparse
+
+
+class ActionDefinition(Enum):
+    PHASE = auto()
+    CYCLE = auto()
 
 
 class TrainingStrategy(Enum):
@@ -49,24 +53,30 @@ _settings = {
             'red_duration': int,
             'num_intersections': int,
             'intersection_length': int,
-            'cycle_time' : int
+            'cycle_time': int,
+            'min_green_duration': int
         },
 
         'model': {
+            # Common agent settings
+            'batch_size': int,
+
+            # DQN agents settings
             'hidden_dim': list,
+            'target_update': int,
+            'learning_rate': float,
+
+            # PPO agents settings
             'critic_dim': list,
             'actor_dim': list,
-            'batch_size': int,
-            'learning_rate': float,
-            'num_layers': int,
             'policy_learning_rate': float,
             'value_learning_rate': float,
+
+            # WOLP/DDPG agent settings
+            'weight_decay': float,
+            'warmup': int,
             'actor_init_w': float,
             'critic_init_w': float,
-            'weight_decay': float,
-            'training_epochs': int,
-            'target_update': int,
-            'warmup': int,
         },
 
         'memory': {
@@ -82,30 +92,42 @@ _settings = {
         },
 
         'agent': {
+            # Common agent settings
             'agent_type': AgentType,
             'model': str,
             'is_train': bool,
             'state_representation': StateRepresentation,
-            'action_representation': str,
+            'action_definition': ActionDefinition,
             'reward_definition': RewardDefinition,
-            'training_strategy': TrainingStrategy,
-            'actor_parameter_sharing': bool,
-            'critic_parameter_sharing': bool,
-            'num_states': int,
             'num_actions': int,
-            'action_definition': str,
-            'single_state_space': bool,
-            'fixed_action_space': bool,
-            'local_reward_signal': bool,
+            'num_states': int,
             'gamma': float,
+
+            # DQN agents settings
             'tau': float,
-            'ou_theta': float,
-            'ou_mu': float,
-            'ou_sigma': float,
+
+            # PPO agents settings
             'gae_lambda': float,
             'policy_clip': float,
             'n_epochs': int,
             'learning_interval': int,
+
+            # MAPPO agent settings
+            'training_strategy': TrainingStrategy,
+            'actor_parameter_sharing': bool,
+            'critic_parameter_sharing': bool,
+
+            # Single agent settings
+            'fixed_action_space': bool,
+
+            # Multi agent settings
+            'single_state_space': bool,
+            'local_reward_signal': bool,
+
+            # WOLP/DDPG agent settings
+            'ou_theta': float,
+            'ou_mu': float,
+            'ou_sigma': float,
         },
 
         'dir': {
@@ -116,25 +138,24 @@ _settings = {
     }
 
 
-def _import_configuration():
+def _import_configuration_data():
     """Read the appropriate config file (for training or testing)."""
     config_file = 'training_settings.ini'
     options = _get_cli_options()
-    config = _parse_config_file(config_file, is_train_config=True)
-    _overwrite_config_with_options(config, options)
+    config_data = _parse_config_file(config_file, options, is_train_config=True)
 
-    if not config['is_train']:
-        test_config_file = os.path.join(config['test_model_path_name'], config_file)
-        config = _parse_config_file(test_config_file, is_train_config=False)
-        _overwrite_config_with_options(config, options)
+    if not config_data['is_train']:
+        test_config_file = os.path.join(config_data['test_model_path_name'], config_file)
+        config_data = _parse_config_file(test_config_file, options, is_train_config=False)
+        _overwrite_config_with_options(config_data, options)
 
-    return config
+    return config_data
 
 
-def _parse_config_file(config_file, is_train_config):
+def _parse_config_file(config_file, options, is_train_config):
     content = configparser.ConfigParser()
     content.read(config_file)
-    config = {}
+    config_data = {}
 
     for category, category_settings in _settings.items():
         for setting, setting_type in category_settings.items():
@@ -161,22 +182,24 @@ def _parse_config_file(config_file, is_train_config):
             else:
                 sys.exit(f'Invalid type "{setting_type}" for setting "{setting}"')
 
-            config[setting] = value
+            config_data[setting] = value
+
+    _overwrite_config_with_options(config_data, options)
 
     # Handle the multi-agent and single agent cases
-    if config['agent_type'].is_multi():
-        config['single_agent'] = False
-        config['fixed_action_space'] = False
+    if config_data['agent_type'].is_multi():
+        config_data['single_agent'] = False
+        config_data['fixed_action_space'] = False
     else:
-        config['single_agent'] = True
-        config['single_state_space'] = False
-        config['local_reward_signal'] = False
+        config_data['single_agent'] = True
+        config_data['single_state_space'] = False
+        config_data['local_reward_signal'] = False
 
     # Change settings for test configuration
     if not is_train_config:
-        config['is_train'] = False
+        config_data['is_train'] = False
 
-    return config
+    return config_data
 
 
 def _create_enum_converter(enum_class):
@@ -214,11 +237,22 @@ class _IntListAction(argparse.Action):
         setattr(namespace, self.dest, value)
 
 
-def _overwrite_config_with_options(config, options):
+def _overwrite_config_with_options(config_data, options):
     for option_name, value in options.__dict__.items():
         if value is not None:
-            config[option_name] = value
+            config_data[option_name] = value
 
 
-# config = SimpleNamespace(**_import_configuration())
-config = _import_configuration()
+class Configuration(dict):
+    def __init__(self, config_data):
+        super().__init__(config_data)
+
+    def overwrite(self, config_changes):
+        for setting, value in config_changes.items():
+            self[setting] = value
+
+    def __getattr__(self, item):
+        return self[item]
+
+
+config = Configuration(_import_configuration_data())
