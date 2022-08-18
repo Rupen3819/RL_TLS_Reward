@@ -1,6 +1,7 @@
 import os
 import random
 import sys
+import time
 
 import traci
 from gym import Env
@@ -13,6 +14,7 @@ from settings import config, RewardDefinition
 from state import JunctionManager
 from stats.junction import JunctionStatistics, TL_list
 from traffic_generation import ModularTrafficGenerator
+from StateSocket import StateSocket
 
 
 class SumoEnv(Env):
@@ -37,6 +39,12 @@ class SumoEnv(Env):
         for i in range(config['num_intersections']):
             self.traffic_lights[get_intersection_name(i)] = str(i + 1)
 
+        self.statesocket, self.socketnumber = self._start_statesocket()
+
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path,
+                                        config['sumocfg_file_name'], config['max_steps'],
+                                        self.socketnumber)
+                                        
         self.num_intersections = config['num_intersections']
 
         self.generate_traffic()
@@ -77,11 +85,46 @@ class SumoEnv(Env):
         info = {}
         return self.state, self.reward, done, info
 
+
+    def _set_TL_cycle(self, TL_ID: dict, actions: list):
+        TL_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(TL_ID)
+        for logic in TL_logic:
+            for action in actions:
+                for count, phase in enumerate(logic.getPhases()):
+                    if count + 1  % 3 == 0:
+                        phase.duration = self.red_duration
+                    if count + 1  % 2 == 0:
+                        phase.duration = self.yellow_duration
+                    else:
+                        phase.duration = action
+            traci.trafficlight.setCompleteRedYellowGreenDefinition(TL_ID,logic)
+
+    def _simulate(self):
+        for _ in range(self.cycle_time):
+            traci.simulationStep()
+
+            self.statesocket.readSocket()
+            print(self.statesocket.edgesMap)
+            self.statesocket.return_num_vehicles_lane()
+
+            if config['reward_definition'] == RewardDefinition.WAITING_FAST:
+                self.junction_manager.receive_rewards()
+
+            if self.vehicle_stats is not None:
+                self.vehicle_stats.update()
+
+            self.junction_manager.receive_states()
+
     def generate_traffic(self, seed=random.randint(0, 100)):
         self.traffic_generator.generate_route_file(model_path=self.model_path, seed=seed)
 
+
     def reset(self):
-        self._sumo_cmd = configure_sumo(config['gui'], self.model_path, config['sumocfg_file_name'], config['max_steps'])
+        self.statesocket.reset()
+        self.statesocket, self.socketnumber = self._start_statesocket()
+        self._sumo_cmd = configure_sumo(config['gui'], self.model_path,
+                                        config['sumocfg_file_name'], config['max_steps'],
+                                        self.socketnumber)
 
         try:
             traci.start(self._sumo_cmd)
@@ -93,6 +136,25 @@ class SumoEnv(Env):
 
         self.state = [0] * self.num_states
         return self.state
+
+    def _start_statesocket(self):
+        statesocket = StateSocket()
+        statesocket.reset()
+        statesocket.startSocket()
+        i = 0
+        while i < 10:
+            try:
+                socketnumber = statesocket.returnSocketNumber()
+                break
+            except:
+                statesocket = StateSocket()
+                statesocket.reset()
+                statesocket.startSocket()
+                print('sleep')
+                time.sleep(5)
+        print(socketnumber)
+        i += 1
+        return statesocket, socketnumber
 
     def render(self):
         # Implement visualization
@@ -291,10 +353,11 @@ def import_sumo_tools():
         sys.exit("Please declare environment variable 'SUMO_HOME'")
 
 
-def configure_sumo(gui, model_path, sumocfg_file_name, max_steps):
+def configure_sumo(gui, model_path, sumocfg_file_name, max_steps, socket):
     """
     Configure various parameters of SUMO.
     """
+    connectionString = "127.0.0.1:" + str(socket)
     # Setting the cmd mode or the visual mode
     if gui:
         sumo_binary = checkBinary('sumo-gui')
@@ -303,9 +366,10 @@ def configure_sumo(gui, model_path, sumocfg_file_name, max_steps):
 
     # Setting the cmd command to run sumo at simulation time
     model_path = os.path.join(model_path, sumocfg_file_name)
-    sumo_cmd = [
-        sumo_binary, "-c", model_path, "--no-step-log", "true",
-        "--waiting-time-memory", str(max_steps), "--xml-validation", "never"
-    ]
+    
+    sumo_cmd = [sumo_binary, "-c", model_path, "--no-step-log", "true",
+                "--waiting-time-memory", str(max_steps),
+                "--netstate", connectionString]
+
 
     return sumo_cmd
